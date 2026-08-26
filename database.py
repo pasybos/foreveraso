@@ -80,7 +80,7 @@ def get_user_referrals(tg_id):
     conn.close()
     return row[0] if row else 0
 
-# --- функции для пула ссылок ---
+# --- pool_links ---
 def add_pool_link(link):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -121,7 +121,7 @@ def delete_pool_link(link_id):
     conn.commit()
     conn.close()
 
-# --- функции для промокодов ---
+# --- promocodes ---
 def add_promocode(code, days):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
