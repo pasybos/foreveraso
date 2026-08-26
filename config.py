@@ -14,18 +14,25 @@ IMAGE_PATH = os.path.join(BASE_DIR, "logo.jpg")
 FREE_HOURS = 24
 DB_PATH = os.path.join(BASE_DIR, "users.db")
 
-# Тарифы для Telegram Stars
+# Тарифы (price_stars – цена в звёздах Telegram)
 TARIFFS = {
-    "week": {"days": 7, "price_stars": 25},
-    "month": {"days": 30, "price_stars": 50},
-    "halfyear": {"days": 180, "price_stars": 299},
-    "year": {"days": 365, "price_stars": 549},
-    "forever": {"days": 3650, "price_stars": 1350},
+    "free":    {"days": 1,    "label": "Бесплатная",  "price_rub": "0 ₽",   "price_stars": 0,   "pool": "free"},
+    "ref":     {"days": 14,   "label": "Реферальная", "price_rub": "0 ₽",   "price_stars": 0,   "pool": "ref"},
+    "week":    {"days": 7,    "label": "Неделя",      "price_rub": "35 ₽",  "price_stars": 25,  "pool": "week"},
+    "month":   {"days": 30,   "label": "Месяц",       "price_rub": "99 ₽",  "price_stars": 50,  "pool": "month"},
+    "halfyear":{"days": 180,  "label": "Полгода",     "price_rub": "549 ₽", "price_stars": 299, "pool": "halfyear"},
+    "year":    {"days": 365,  "label": "Год",         "price_rub": "999 ₽", "price_stars": 549, "pool": "year"},
+    "forever": {"days": 3650, "label": "Навсегда",    "price_rub": "2499 ₽","price_stars": 1350,"pool": "forever"},
 }
-TARIFF_NAMES = {
-    "week": "Неделя",
-    "month": "Месяц",
-    "halfyear": "Полгода",
-    "year": "Год",
-    "forever": "Навсегда"
+
+ALL_POOLS = ["free", "ref", "week", "month", "halfyear", "year", "forever"]
+
+POOL_LABELS = {
+    "free":     "Бесплатные (24ч)",
+    "ref":      "Реферальные (14д)",
+    "week":     "Неделя (7д)",
+    "month":    "Месяц (30д)",
+    "halfyear": "Полгода (180д)",
+    "year":     "Год (365д)",
+    "forever":  "Навсегда (3650д)",
 }
