@@ -270,23 +270,26 @@ async def referral_cmd(message: types.Message):
 @dp.callback_query(F.data == "get_free")
 async def get_free(callback: types.CallbackQuery):
     logger.info(f"🔔 get_free вызвана для пользователя {callback.from_user.id}")
-    await callback.answer()
+    await callback.answer()  # <-- Это обязательная строка!
     tg_id = callback.from_user.id
     user = get_user(tg_id)
     now = int(time.time())
 
     logger.info(f"Пользователь {tg_id}, данные: {user}")
 
+    # Проверяем активную подписку
     if user and user[1] and user[1] > now:
         logger.info(f"У пользователя уже активна подписка до {user[1]}")
         await callback.message.answer("⏳ У вас уже активная подписка.")
         return
 
+    # Проверяем, использовал ли бесплатную
     if user and user[3] == 1:
         logger.info(f"Пользователь уже использовал бесплатную подписку")
         await callback.message.answer("❌ Вы уже использовали бесплатную подписку.")
         return
 
+    # Проверяем подписку на канал
     if not await check_subscription(tg_id):
         logger.info(f"Пользователь не подписан на канал")
         await callback.message.answer(
@@ -297,6 +300,7 @@ async def get_free(callback: types.CallbackQuery):
         )
         return
 
+    # Создаём подписку
     try:
         days = FREE_HOURS // 24
         link = await create_subscription(tg_id, days, "free")
@@ -314,12 +318,7 @@ async def get_free(callback: types.CallbackQuery):
         logger.error(f"Ошибка в get_free: {e}", exc_info=True)
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
 
-# ---------------------------------- остальные обработчики ----------------------------------
-@dp.callback_query(F.data == "back_main")
-async def back_main(callback: types.CallbackQuery):
-    await callback.answer()
-    await callback.message.edit_text("📌 *Главное меню*", parse_mode="Markdown", reply_markup=main_menu)
-
+# ---------------------------------- остальные обработчики (без continue_propagation) ----------------------------------
 @dp.callback_query(F.data == "instructions")
 async def show_instructions(callback: types.CallbackQuery):
     await callback.answer()
@@ -399,6 +398,27 @@ async def buy_stars_tariff(callback: types.CallbackQuery):
     )
     await callback.answer()
 
+@dp.callback_query(F.data == "buy_manual")
+async def buy_manual(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_text(
+        f"💳 *Оплата за рубли*\n\n"
+        f"Для покупки подписки свяжитесь с администратором:\n"
+        f"📩 **@{PAYMENT_CONTACT}**\n\n"
+        f"Он предоставит реквизиты для перевода и активирует подписку после оплаты.\n\n"
+        f"📌 *Тарифы:*\n"
+        f"▸ Неделя — 35 ₽\n"
+        f"▸ Месяц — 99 ₽\n"
+        f"▸ Полгода — 549 ₽\n"
+        f"▸ Год — 999 ₽\n"
+        f"▸ Навсегда — 2499 ₽\n\n"
+        f"После оплаты администратор выдаст вам ссылку для подключения.",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="buy_menu")]
+        ])
+    )
+
 @dp.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery):
     await query.answer(ok=True)
@@ -438,27 +458,6 @@ async def successful_payment(message: types.Message):
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}", parse_mode="Markdown")
 
-@dp.callback_query(F.data == "buy_manual")
-async def buy_manual(callback: types.CallbackQuery):
-    await callback.answer()
-    await callback.message.edit_text(
-        f"💳 *Оплата за рубли*\n\n"
-        f"Для покупки подписки свяжитесь с администратором:\n"
-        f"📩 **@{PAYMENT_CONTACT}**\n\n"
-        f"Он предоставит реквизиты для перевода и активирует подписку после оплаты.\n\n"
-        f"📌 *Тарифы:*\n"
-        f"▸ Неделя — 35 ₽\n"
-        f"▸ Месяц — 99 ₽\n"
-        f"▸ Полгода — 549 ₽\n"
-        f"▸ Год — 999 ₽\n"
-        f"▸ Навсегда — 2499 ₽\n\n"
-        f"После оплаты администратор выдаст вам ссылку для подключения.",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="buy_menu")]
-        ])
-    )
-
 # ---------------------------------- КОМАНДА АДМИНИСТРАТОРА /give_sub ----------------------------------
 @dp.message(Command("give_sub"))
 async def give_sub_command(message: types.Message):
@@ -493,7 +492,7 @@ async def give_sub_command(message: types.Message):
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
 
-# ---------------------------------- АДМИН-ПАНЕЛЬ: АКТИВАЦИЯ ПОДПИСКИ ----------------------------------
+# ---------------------------------- АДМИН-ПАНЕЛЬ (без continue_propagation) ----------------------------------
 @dp.message(F.text == "✅ Активировать подписку")
 async def admin_activate_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -540,7 +539,6 @@ async def admin_activate_get_days(message: types.Message, state: FSMContext):
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}", reply_markup=admin_keyboard)
 
-# ---------------------------------- РЕФЕРАЛЬНАЯ ПОДПИСКА (админ) ----------------------------------
 @dp.message(F.text == "✅ Активировать реферальную подписку")
 async def admin_ref_activate_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
