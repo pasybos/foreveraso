@@ -405,7 +405,6 @@ async def process_promo_code(message: types.Message, state: FSMContext):
         add_or_update_user(tg_id, user[0], new_expire, subscription_link=user[6])
         expire_display = format_datetime(new_expire)
     else:
-        # Берём новую ссылку из пула
         link_data = get_free_link()
         if not link_data:
             await message.answer("❌ *Нет свободных ссылок.* Обратитесь к администратору.", parse_mode="Markdown")
@@ -483,7 +482,6 @@ async def manage_links(message: types.Message):
     )
     await message.answer("📦 *Управление пулом ссылок*\nВыберите действие:", parse_mode="Markdown", reply_markup=kb)
 
-# Добавление ссылок (поддерживает текст и файл)
 @dp.message(F.text == "➕ Добавить ссылки")
 async def add_links_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -496,7 +494,6 @@ async def add_links_start(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
-# Обработка загруженного файла
 @dp.message(AdminStates.waiting_for_link_input, F.document)
 async def add_links_from_file(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -529,7 +526,6 @@ async def add_links_from_file(message: types.Message, state: FSMContext):
         reply_markup=admin_keyboard
     )
 
-# Обработка текстового ввода
 @dp.message(AdminStates.waiting_for_link_input, F.text)
 async def add_links_process(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -559,7 +555,6 @@ async def add_links_process(message: types.Message, state: FSMContext):
         reply_markup=admin_keyboard
     )
 
-# Список ссылок
 @dp.message(F.text == "📋 Список ссылок")
 async def list_links(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
@@ -575,7 +570,6 @@ async def list_links(message: types.Message):
         text += f"ID `{link_id}`: `{link[:50]}...` — {status}{used_info}\n"
     await message.answer(text, parse_mode="Markdown", reply_markup=admin_keyboard)
 
-# Удаление ссылки
 @dp.message(F.text == "🗑️ Удалить ссылку")
 async def delete_link_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -664,7 +658,6 @@ async def admin_stats(message: types.Message):
         parse_mode="Markdown"
     )
 
-# ---------------------------- АКТИВАЦИЯ ПОДПИСКИ (гибкое количество дней) ----------------------------
 @dp.message(F.text == "✅ Активировать подписку")
 async def admin_activate_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -734,7 +727,6 @@ async def admin_activate_get_days(message: types.Message, state: FSMContext):
     )
     await message.answer(f"✅ *Подписка для `{tg_id}` активирована на {days} дней.*", parse_mode="Markdown")
 
-# ---------------------------- СОЗДАНИЕ ПРОМОКОДА ----------------------------
 @dp.message(F.text == "🎫 Создать промокод")
 async def admin_create_promo_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -769,7 +761,6 @@ async def admin_create_promo_days(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
-# ---------------------------- СПИСОК ПРОМОКОДОВ ----------------------------
 @dp.message(F.text == "📋 Список промокодов")
 async def admin_list_promocodes(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
@@ -785,7 +776,6 @@ async def admin_list_promocodes(message: types.Message):
         text += f"▸ `{code}` – {days} дней – {status}{used_info}\n"
     await message.answer(text, parse_mode="Markdown")
 
-# ---------------------------- РАССЫЛКА ----------------------------
 @dp.message(F.text == "📨 Сделать рассылку")
 async def admin_broadcast_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
