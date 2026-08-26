@@ -1,5 +1,6 @@
 import aiohttp
 import logging
+import asyncio
 from config import PANEL_URL, PANEL_USERNAME, PANEL_PASSWORD, PANEL_INBOUND_ID, API_TOKEN, API_BASE_PATH
 
 logging.basicConfig(level=logging.INFO)
@@ -50,7 +51,7 @@ class PanelAPI:
             "expiryTime": expiry_ms,
             "totalGB": total_gb,
             "limitIp": limit_ip,
-            "flow": "xtls-rprx-vision",   # <--- ДОБАВЛЕНО! Обязательно для VLESS-Reality
+            "flow": "xtls-rprx-vision",   # <--- ДОБАВЛЕНО
             "enable": True
         }
         payload = {
