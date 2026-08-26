@@ -1,6 +1,6 @@
 import aiohttp
-import logging
 import asyncio
+import logging
 from config import PANEL_URL, PANEL_USERNAME, PANEL_PASSWORD, PANEL_INBOUND_ID, API_TOKEN, API_BASE_PATH
 
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +19,7 @@ class PanelAPI:
             self.session = aiohttp.ClientSession()
         return self.session
 
-    async def _request(self, method, endpoint, data=None, retries=2):
+    async def _request(self, method, endpoint, data=None, retries=3):
         session = await self._get_session()
         url = f"{self.base_url}{self.api_base}{endpoint.lstrip('/')}"
         headers = {
@@ -39,9 +39,9 @@ class PanelAPI:
                 logger.warning(f"Попытка {attempt+1} не удалась: {e}")
                 if attempt == retries-1:
                     raise
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
 
-    async def create_client(self, email: str, expire_timestamp: int, total_gb: int = 0, limit_ip: int = 0):
+    async def create_client(self, email: str, expire_timestamp: int, total_gb: int = 0, limit_ip: int = 1):
         import uuid
         client_id = str(uuid.uuid4())
         expiry_ms = int(expire_timestamp * 1000)
@@ -51,7 +51,7 @@ class PanelAPI:
             "expiryTime": expiry_ms,
             "totalGB": total_gb,
             "limitIp": limit_ip,
-            "flow": "xtls-rprx-vision",   # <--- ДОБАВЛЕНО
+            "flow": "xtls-rprx-vision",
             "enable": True
         }
         payload = {
