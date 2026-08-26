@@ -1,7 +1,7 @@
 import aiohttp
 import asyncio
 import logging
-import re
+import base64
 from config import PANEL_URL, PANEL_USERNAME, PANEL_PASSWORD, PANEL_INBOUND_ID
 
 logging.basicConfig(level=logging.INFO)
@@ -10,98 +10,39 @@ logger = logging.getLogger(__name__)
 class PanelAPI:
     def __init__(self):
         self.session = None
-        self.cookies = None
         self.base_url = PANEL_URL.rstrip('/')
         self.inbound_id = PANEL_INBOUND_ID
-        self.logged_in = False
+        self.auth_header = None
 
     async def _get_session(self):
         if self.session is None:
             self.session = aiohttp.ClientSession()
         return self.session
 
-    async def _login(self):
-        session = await self._get_session()
-        login_url = f"{self.base_url}/login"
-        csrf_token = None
-
-        # Пробуем получить CSRF-токен (если страница логина доступна)
-        try:
-            async with session.get(login_url) as resp:
-                if resp.status == 200:
-                    html = await resp.text()
-                    match = re.search(r'name="csrf_token"\s+value="([^"]+)"', html)
-                    if match:
-                        csrf_token = match.group(1)
-                    else:
-                        match = re.search(r'<meta name="csrf-token"\s+content="([^"]+)"', html)
-                        if match:
-                            csrf_token = match.group(1)
-                else:
-                    logger.warning(f"GET /login вернул {resp.status}, пробуем без CSRF")
-        except Exception as e:
-            logger.warning(f"Ошибка при получении страницы логина: {e}")
-
-        # Пробуем логиниться с JSON
-        data = {"username": PANEL_USERNAME, "password": PANEL_PASSWORD}
-        if csrf_token:
-            data["csrf_token"] = csrf_token
-        try:
-            async with session.post(login_url, json=data) as resp:
-                if resp.status == 200:
-                    self.cookies = session.cookie_jar
-                    self.logged_in = True
-                    logger.info("✅ Успешная авторизация (JSON)")
-                    return
-        except Exception as e:
-            logger.warning(f"JSON-логин не удался: {e}")
-
-        # Пробуем form-data
-        try:
-            async with session.post(login_url, data=data) as resp:
-                if resp.status == 200:
-                    self.cookies = session.cookie_jar
-                    self.logged_in = True
-                    logger.info("✅ Успешная авторизация (form-data)")
-                    return
-        except Exception as e:
-            logger.warning(f"form-data логин не удался: {e}")
-
-        # Пробуем form-data без CSRF
-        try:
-            async with session.post(login_url, data={"username": PANEL_USERNAME, "password": PANEL_PASSWORD}) as resp:
-                if resp.status == 200:
-                    self.cookies = session.cookie_jar
-                    self.logged_in = True
-                    logger.info("✅ Успешная авторизация (без CSRF)")
-                    return
-        except Exception as e:
-            logger.warning(f"логин без CSRF не удался: {e}")
-
-        raise Exception("Не удалось войти в панель ни одним из способов")
-
-    async def _ensure_login(self):
-        if not self.logged_in:
-            await self._login()
+    async def _ensure_auth(self):
+        if self.auth_header is None:
+            credentials = f"{PANEL_USERNAME}:{PANEL_PASSWORD}"
+            encoded = base64.b64encode(credentials.encode()).decode()
+            self.auth_header = f"Basic {encoded}"
+            logger.info("✅ Basic Auth заголовок создан")
 
     async def _request(self, method, endpoint, data=None):
-        await self._ensure_login()
+        await self._ensure_auth()
         session = await self._get_session()
-        possible_paths = ["/panel/api/", "/api/", "/xui/API/"]
-        for path in possible_paths:
-            url = f"{self.base_url}{path}{endpoint.lstrip('/')}"
-            logger.info(f"Попытка запроса: {method} {url}")
-            async with session.request(method, url, json=data, headers={"Content-Type": "application/json"}, cookies=self.cookies) as resp:
-                if resp.status == 200:
-                    logger.info(f"Успешный ответ от {url}")
-                    return await resp.json()
-                elif resp.status == 404:
-                    continue
-                else:
-                    error_text = await resp.text()
-                    logger.error(f"Ошибка {resp.status} от {url}: {error_text}")
-                    raise Exception(f"HTTP {resp.status}: {error_text}")
-        raise Exception("Не удалось найти рабочий путь к API (проверены /panel/api/, /api/, /xui/API/)")
+        # Только один правильный путь для твоей панели
+        url = f"{self.base_url}/panel/api/{endpoint.lstrip('/')}"
+        logger.info(f"Запрос: {method} {url}")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": self.auth_header
+        }
+        async with session.request(method, url, json=data, headers=headers) as resp:
+            if resp.status == 200:
+                return await resp.json()
+            else:
+                error_text = await resp.text()
+                logger.error(f"Ошибка {resp.status}: {error_text[:200]}")
+                raise Exception(f"HTTP {resp.status}: {error_text}")
 
     async def create_client(self, email: str, expire_timestamp: int, total_gb: int = 0, limit_ip: int = 1):
         import uuid
@@ -123,21 +64,15 @@ class PanelAPI:
         result = await self._request('POST', 'inbounds/addClient', data=payload)
         if result.get('success'):
             return client_id
-        else:
-            raise Exception(f"Ошибка создания клиента: {result}")
+        raise Exception(f"Ошибка создания клиента: {result}")
 
     async def get_client_link(self, client_id: str) -> str:
         result = await self._request('GET', f'inbounds/get/{self.inbound_id}')
         inbound = result.get('obj', {})
-        clients = inbound.get('clients', [])
-        for client in clients:
+        for client in inbound.get('clients', []):
             if client.get('id') == client_id:
                 return client.get('link', '')
         raise Exception("Клиент не найден")
-
-    async def delete_client(self, client_id: str):
-        await self._request('POST', f'inbounds/deleteClient/{client_id}')
-        return True
 
     async def close(self):
         if self.session:
