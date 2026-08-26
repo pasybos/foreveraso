@@ -5,7 +5,6 @@ from config import DB_PATH
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    # Таблица пользователей (добавлено поле ref_link)
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
             tg_id INTEGER PRIMARY KEY,
@@ -17,30 +16,9 @@ def init_db():
             referrer_id INTEGER DEFAULT NULL,
             panel_client_id TEXT,
             current_link TEXT,
-            ref_link TEXT UNIQUE   -- уникальная реферальная ссылка (код)
+            ref_link TEXT UNIQUE
         )
     ''')
-    # Таблица обычного пула ссылок (для основных подписок)
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS pool_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            link TEXT UNIQUE,
-            used BOOLEAN DEFAULT 0,
-            used_by INTEGER DEFAULT NULL,
-            used_at INTEGER DEFAULT NULL
-        )
-    ''')
-    # Таблица реферального пула ссылок (для бонусов)
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS ref_pool_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            link TEXT UNIQUE,
-            used BOOLEAN DEFAULT 0,
-            used_by INTEGER DEFAULT NULL,
-            used_at INTEGER DEFAULT NULL
-        )
-    ''')
-    # Таблица промокодов
     c.execute('''
         CREATE TABLE IF NOT EXISTS promocodes (
             code TEXT PRIMARY KEY,
@@ -50,14 +28,12 @@ def init_db():
             used_at INTEGER DEFAULT NULL
         )
     ''')
-    # Таблица настроек
     c.execute('''
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
         )
     ''')
-    # Добавляем настройки по умолчанию, если их нет
     c.execute('INSERT OR IGNORE INTO settings (key, value) VALUES ("ref_required", "5")')
     c.execute('INSERT OR IGNORE INTO settings (key, value) VALUES ("ref_bonus_days", "14")')
     conn.commit()
@@ -97,14 +73,6 @@ def get_all_active_users():
     conn.close()
     return rows
 
-def get_user_referrals(tg_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT ref_count FROM users WHERE tg_id=?', (tg_id,))
-    row = c.fetchone()
-    conn.close()
-    return row[0] if row else 0
-
 def get_setting(key):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -120,89 +88,6 @@ def set_setting(key, value):
     conn.commit()
     conn.close()
 
-# --- функции для пула ссылок (обычные) ---
-def add_pool_link(link):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    try:
-        c.execute('INSERT INTO pool_links (link) VALUES (?)', (link,))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        pass
-    conn.close()
-
-def get_free_link():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT id, link FROM pool_links WHERE used=0 LIMIT 1')
-    row = c.fetchone()
-    conn.close()
-    return row
-
-def mark_link_used(link_id, tg_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('UPDATE pool_links SET used=1, used_by=?, used_at=? WHERE id=?', (tg_id, int(time.time()), link_id))
-    conn.commit()
-    conn.close()
-
-def get_all_pool_links():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT id, link, used, used_by FROM pool_links ORDER BY id DESC')
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
-def delete_pool_link(link_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('DELETE FROM pool_links WHERE id=?', (link_id,))
-    conn.commit()
-    conn.close()
-
-# --- функции для реферального пула ссылок ---
-def add_ref_pool_link(link):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    try:
-        c.execute('INSERT INTO ref_pool_links (link) VALUES (?)', (link,))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        pass
-    conn.close()
-
-def get_free_ref_link():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT id, link FROM ref_pool_links WHERE used=0 LIMIT 1')
-    row = c.fetchone()
-    conn.close()
-    return row
-
-def mark_ref_link_used(link_id, tg_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('UPDATE ref_pool_links SET used=1, used_by=?, used_at=? WHERE id=?', (tg_id, int(time.time()), link_id))
-    conn.commit()
-    conn.close()
-
-def get_all_ref_pool_links():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT id, link, used, used_by FROM ref_pool_links ORDER BY id DESC')
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
-def delete_ref_pool_link(link_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('DELETE FROM ref_pool_links WHERE id=?', (link_id,))
-    conn.commit()
-    conn.close()
-
-# --- функции для промокодов (без изменений) ---
 def add_promocode(code, days):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
