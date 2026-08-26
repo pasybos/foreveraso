@@ -12,10 +12,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMAGE_PATH = os.path.join(BASE_DIR, "logo.jpg")
 
 # Настройки панели 3x-ui
-PANEL_URL = "http://89.125.33.130:2053/Cjgo9OTNe2qsekfCkR"
+PANEL_URL = "http://89.125.33.130:8443/Cjgo9OTNe2qsekfCkR"
 PANEL_USERNAME = "P4Zo2Vjuot"
 PANEL_PASSWORD = "CfELWwjjko"
-PANEL_INBOUND_ID = 1   # ID вашего инбаунда
+PANEL_INBOUND_ID = 1
+# API_TOKEN можно удалить или оставить, но он не используется
 API_TOKEN = "eNTuQlMg6jAOBQtk5ShG1turbqWbgQtzAnTzbAFkJ8CNyiS9"
 API_BASE_PATH = "/panel/api/"
 
