@@ -194,9 +194,15 @@ async def referral_cmd(message: types.Message):
     )
 
 # ---------------------------------- обработчики callback'ов ----------------------------------
+# Теперь все callback'ы используют ответ новым сообщением вместо edit_text
 @dp.callback_query(F.data == "back_main")
 async def back_main(callback: types.CallbackQuery):
-    await callback.message.edit_text("📌 *Главное меню*", parse_mode="Markdown", reply_markup=main_menu)
+    await callback.message.answer(
+        "📌 *Главное меню*",
+        parse_mode="Markdown",
+        reply_markup=main_menu
+    )
+    await callback.answer()
 
 @dp.callback_query(F.data == "check_sub")
 async def check_sub_callback(callback: types.CallbackQuery):
@@ -219,11 +225,12 @@ async def show_instructions(callback: types.CallbackQuery):
         "6. Подключитесь\n\n"
         "❓ Если нужна помощь — обратитесь в поддержку."
     )
-    await callback.message.edit_text(instructions_text, parse_mode="Markdown", reply_markup=back_button)
+    await callback.message.answer(instructions_text, parse_mode="Markdown", reply_markup=back_button)
+    await callback.answer()
 
 @dp.callback_query(F.data == "trial")
 async def trial_handler(callback: types.CallbackQuery):
-    await callback.message.edit_text(
+    await callback.message.answer(
         "🎁 *Пробный период*\n\n"
         "Вы можете получить бесплатную подписку на 24 часа.\n"
         "Для этого нажмите «Получить подписку».\n\n"
@@ -231,6 +238,7 @@ async def trial_handler(callback: types.CallbackQuery):
         parse_mode="Markdown",
         reply_markup=back_button
     )
+    await callback.answer()
 
 # ---------------------------------- ВЫДАЧА ПОДПИСКИ (из пула) ----------------------------------
 async def assign_link_to_user(tg_id: int, tariff: str, expire_ts: int) -> str:
@@ -267,6 +275,7 @@ async def get_free(callback: types.CallbackQuery):
                     parse_mode="Markdown",
                     reply_markup=back_button
                 )
+                await callback.answer()
                 return
             else:
                 await callback.answer("❌ Ваша бесплатная подписка истекла. Теперь доступен только платный тариф.", show_alert=True)
@@ -277,12 +286,13 @@ async def get_free(callback: types.CallbackQuery):
 
     # 3. Проверяем подписку на канал
     if not await check_subscription(tg_id):
-        await callback.message.edit_text(
+        await callback.message.answer(
             "🔒 *Для получения бесплатной подписки* подпишитесь на наш канал.\n"
             "После подписки нажмите кнопку проверки.",
             parse_mode="Markdown",
             reply_markup=subscribe_keyboard
         )
+        await callback.answer()
         return
 
     # 4. Если всё ок — выдаём бесплатную подписку
@@ -299,11 +309,13 @@ async def get_free(callback: types.CallbackQuery):
             parse_mode="Markdown",
             reply_markup=back_button
         )
+        await callback.answer()
     except Exception as e:
         await callback.message.answer(
             f"❌ *Ошибка при создании подписки:*\n{str(e)}",
             parse_mode="Markdown"
         )
+        await callback.answer()
 
 # ---------------------------------- ПОКУПКА VIP ----------------------------------
 @dp.callback_query(F.data == "buy_paid")
@@ -322,6 +334,7 @@ async def buy_paid(callback: types.CallbackQuery):
         parse_mode="Markdown",
         reply_markup=kb
     )
+    await callback.answer()
 
 @dp.callback_query(F.data == "pay_confirm")
 async def pay_confirm(callback: types.CallbackQuery):
@@ -340,6 +353,7 @@ async def pay_confirm(callback: types.CallbackQuery):
         parse_mode="Markdown",
         reply_markup=back_button
     )
+    await callback.answer()
 
 # ---------------------------------- ПРОФИЛЬ ----------------------------------
 @dp.message(F.text == "👤 Профиль")
