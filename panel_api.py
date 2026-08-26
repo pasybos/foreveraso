@@ -50,6 +50,7 @@ class PanelAPI:
             "expiryTime": expiry_ms,
             "totalGB": total_gb,
             "limitIp": limit_ip,
+            "flow": "xtls-rprx-vision",   # <--- ДОБАВЛЕНО! Обязательно для VLESS-Reality
             "enable": True
         }
         payload = {
