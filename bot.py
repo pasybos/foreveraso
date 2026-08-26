@@ -194,7 +194,6 @@ async def referral_cmd(message: types.Message):
     )
 
 # ---------------------------------- обработчики callback'ов ----------------------------------
-# Теперь все callback'ы используют ответ новым сообщением вместо edit_text
 @dp.callback_query(F.data == "back_main")
 async def back_main(callback: types.CallbackQuery):
     await callback.message.answer(
@@ -256,12 +255,10 @@ async def get_free(callback: types.CallbackQuery):
     user = get_user(tg_id)
     now = int(time.time())
 
-    # 1. Проверяем, есть ли активная подписка (любая)
     if user and user[1] and user[1] > now:
         await callback.answer("У вас уже активная подписка.", show_alert=True)
         return
 
-    # 2. Если пользователь уже использовал бесплатную (used_free == 1)
     if user and user[3] == 1:
         if user[6]:
             if user[1] and user[1] > now:
@@ -284,7 +281,6 @@ async def get_free(callback: types.CallbackQuery):
             await callback.answer("❌ Вы уже использовали бесплатную подписку. Теперь доступен только платный тариф.", show_alert=True)
             return
 
-    # 3. Проверяем подписку на канал
     if not await check_subscription(tg_id):
         await callback.message.answer(
             "🔒 *Для получения бесплатной подписки* подпишитесь на наш канал.\n"
@@ -295,7 +291,6 @@ async def get_free(callback: types.CallbackQuery):
         await callback.answer()
         return
 
-    # 4. Если всё ок — выдаём бесплатную подписку
     try:
         expire_ts = now + FREE_HOURS * 3600
         link = await assign_link_to_user(tg_id, "free", expire_ts)
