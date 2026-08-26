@@ -11,7 +11,7 @@ PAYMENT_CONTACT = "@pasybos"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMAGE_PATH = os.path.join(BASE_DIR, "logo.jpg")
 
-# Настройки панели 3x-ui (для автоматического создания клиентов)
+# Настройки панели 3x-ui
 PANEL_URL = "http://89.125.33.130:2053/Cjgo9OTNe2qsekfCkR"
 PANEL_USERNAME = "P4Zo2Vjuot"
 PANEL_PASSWORD = "CfELWwjjko"
@@ -19,13 +19,10 @@ PANEL_INBOUND_ID = 1   # ID вашего инбаунда
 API_TOKEN = "eNTuQlMg6jAOBQtk5ShG1turbqWbgQtzAnTzbAFkJ8CNyiS9"
 API_BASE_PATH = "/panel/api/"
 
-# Настройки веб-сервера (для файлов подписки)
+# Веб-сервер для файлов подписки
 WEB_SERVER_HOST = "0.0.0.0"
 WEB_SERVER_PORT = 8080
 PUBLIC_URL = "http://89.125.33.130:8080"
 
 FREE_HOURS = 24
-PAID_DAYS = 30
-PAID_PRICE = "300 ₽"
-
 DB_PATH = os.path.join(BASE_DIR, "users.db")
