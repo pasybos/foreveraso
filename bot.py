@@ -270,26 +270,23 @@ async def referral_cmd(message: types.Message):
 @dp.callback_query(F.data == "get_free")
 async def get_free(callback: types.CallbackQuery):
     logger.info(f"🔔 get_free вызвана для пользователя {callback.from_user.id}")
-    await callback.answer()  # подтверждаем получение callback'а
+    await callback.answer()
     tg_id = callback.from_user.id
     user = get_user(tg_id)
     now = int(time.time())
 
     logger.info(f"Пользователь {tg_id}, данные: {user}")
 
-    # Проверяем активную подписку
     if user and user[1] and user[1] > now:
         logger.info(f"У пользователя уже активна подписка до {user[1]}")
         await callback.message.answer("⏳ У вас уже активная подписка.")
         return
 
-    # Проверяем, использовал ли бесплатную
     if user and user[3] == 1:
         logger.info(f"Пользователь уже использовал бесплатную подписку")
         await callback.message.answer("❌ Вы уже использовали бесплатную подписку.")
         return
 
-    # Проверяем подписку на канал
     if not await check_subscription(tg_id):
         logger.info(f"Пользователь не подписан на канал")
         await callback.message.answer(
@@ -300,7 +297,6 @@ async def get_free(callback: types.CallbackQuery):
         )
         return
 
-    # Создаём подписку
     try:
         days = FREE_HOURS // 24
         link = await create_subscription(tg_id, days, "free")
@@ -318,7 +314,12 @@ async def get_free(callback: types.CallbackQuery):
         logger.error(f"Ошибка в get_free: {e}", exc_info=True)
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
 
-# ---------------------------------- остальные обработчики (инструкция, пробный период, покупка) ----------------------------------
+# ---------------------------------- остальные обработчики ----------------------------------
+@dp.callback_query(F.data == "back_main")
+async def back_main(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_text("📌 *Главное меню*", parse_mode="Markdown", reply_markup=main_menu)
+
 @dp.callback_query(F.data == "instructions")
 async def show_instructions(callback: types.CallbackQuery):
     await callback.answer()
