@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import logging
+import re
 from config import PANEL_URL, PANEL_USERNAME, PANEL_PASSWORD, PANEL_INBOUND_ID
 
 logging.basicConfig(level=logging.INFO)
@@ -20,13 +21,31 @@ class PanelAPI:
         return self.session
 
     async def _login(self):
-        """Авторизуется в панели и сохраняет куки."""
         session = await self._get_session()
         login_url = f"{self.base_url}/login"
+        # 1. Получаем страницу логина, извлекаем CSRF-токен
+        async with session.get(login_url) as resp:
+            if resp.status != 200:
+                raise Exception("Не удалось получить страницу логина")
+            html = await resp.text()
+            csrf_token = None
+            # Ищем CSRF-токен в HTML
+            match = re.search(r'name="csrf_token"\s+value="([^"]+)"', html)
+            if match:
+                csrf_token = match.group(1)
+            else:
+                match = re.search(r'<meta name="csrf-token"\s+content="([^"]+)"', html)
+                if match:
+                    csrf_token = match.group(1)
+            if not csrf_token:
+                logger.warning("CSRF-токен не найден, пробуем без него")
+        # 2. Отправляем POST с данными и CSRF-токеном (если есть)
         data = {
             "username": PANEL_USERNAME,
             "password": PANEL_PASSWORD
         }
+        if csrf_token:
+            data["csrf_token"] = csrf_token
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         async with session.post(login_url, data=data, headers=headers) as resp:
             if resp.status == 200:
@@ -44,10 +63,8 @@ class PanelAPI:
             await self._login()
 
     async def _request(self, method, endpoint, data=None):
-        """Выполняет запрос к API с куками сессии."""
         await self._ensure_login()
         session = await self._get_session()
-        # Пробуем разные пути
         possible_paths = ["/panel/api/", "/xui/API/", "/api/"]
         for path in possible_paths:
             url = f"{self.base_url}{path}{endpoint.lstrip('/')}"
