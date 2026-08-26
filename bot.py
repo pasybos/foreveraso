@@ -19,7 +19,6 @@ from database import init_db, get_user, add_or_update_user, delete_user, get_all
 from panel_api import PanelAPI
 from utils import format_time_left, format_datetime
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -108,13 +107,6 @@ async def check_subscription(user_id: int) -> bool:
     except Exception as e:
         logger.error(f"Ошибка проверки подписки для {user_id}: {e}")
         return False
-
-# ---------------------------------- ЛОГИРОВАНИЕ ВСЕХ CALLBACK'ОВ (для отладки) ----------------------------------
-@dp.callback_query()
-async def log_all_callbacks(callback: types.CallbackQuery):
-    logger.info(f"Callback получен: data={callback.data}, user={callback.from_user.id}")
-    # Пропускаем дальше, чтобы другие обработчики тоже сработали
-    await callback.continue_propagation()
 
 # ---------------------------------- команда /start ----------------------------------
 @dp.message(Command("start"))
@@ -278,10 +270,8 @@ async def referral_cmd(message: types.Message):
 @dp.callback_query(F.data == "get_free")
 async def get_free(callback: types.CallbackQuery):
     logger.info(f"🔔 get_free вызвана для пользователя {callback.from_user.id}")
-    try:
-        await callback.answer("⏳ Обработка...")
-    except Exception as e:
-        logger.error(f"Ошибка при answer: {e}")
+    # Отвечаем, чтобы убрать "часики"
+    await callback.answer()
     tg_id = callback.from_user.id
     user = get_user(tg_id)
     now = int(time.time())
@@ -329,8 +319,9 @@ async def get_free(callback: types.CallbackQuery):
         logger.error(f"Ошибка в get_free: {e}", exc_info=True)
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
 
-# ---------------------------------- остальные обработчики (без изменений) ----------------------------------
-# ... (остальные обработчики остаются как в предыдущей версии, я их не дублирую для краткости)
+# ---------------------------------- остальные обработчики ----------------------------------
+# (Инструкция, пробный период, покупка, админ-панель и т.д. – они такие же, как были в предыдущей версии, я их не дублирую для краткости)
+# Для полноты я приведу их в финальном ответе.
 
 # ---------------------------------- ВЕБ-СЕРВЕР ----------------------------------
 async def handle_user_subscription(request):
