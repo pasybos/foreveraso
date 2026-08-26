@@ -11,12 +11,9 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiohttp import web
-import aiohttp
 
-from config import BOT_TOKEN, ADMIN_IDS, FREE_HOURS, VPN_NAME, DB_PATH, CHANNEL_ID, PAYMENT_CONTACT, IMAGE_PATH, PUBLIC_URL, WEB_SERVER_HOST, WEB_SERVER_PORT, BOT_USERNAME
-from database import init_db, get_user, add_or_update_user, delete_user, get_all_active_users, add_promocode, get_promocode, use_promocode, get_all_promocodes, get_setting, set_setting
-from panel_api import PanelAPI
+from config import BOT_TOKEN, ADMIN_IDS, FREE_HOURS, VPN_NAME, DB_PATH, CHANNEL_ID, PAYMENT_CONTACT, IMAGE_PATH, BOT_USERNAME, TARIFFS, TARIFF_NAMES
+from database import init_db, get_user, add_or_update_user, delete_user, get_all_active_users, add_promocode, get_promocode, use_promocode, get_all_promocodes, get_free_link, mark_link_used, get_all_pool_links, add_pool_link, delete_pool_link, get_free_ref_link, mark_ref_link_used, get_all_ref_pool_links, add_ref_pool_link, delete_ref_pool_link, get_setting, set_setting
 from utils import format_time_left, format_datetime
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -25,23 +22,6 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
-panel = PanelAPI()
-
-# ---------------------------------- тарифы ----------------------------------
-TARIFFS = {
-    "week": {"days": 7, "price_rub": "35 ₽", "price_stars": 25},
-    "month": {"days": 30, "price_rub": "99 ₽", "price_stars": 50},
-    "halfyear": {"days": 180, "price_rub": "549 ₽", "price_stars": 299},
-    "year": {"days": 365, "price_rub": "999 ₽", "price_stars": 549},
-    "forever": {"days": 3650, "price_rub": "2499 ₽", "price_stars": 1350},
-}
-TARIFF_NAMES = {
-    "week": "Неделя",
-    "month": "Месяц",
-    "halfyear": "Полгода",
-    "year": "Год",
-    "forever": "Навсегда"
-}
 
 # ---------------------------------- состояния ----------------------------------
 class AdminStates(StatesGroup):
@@ -52,6 +32,10 @@ class AdminStates(StatesGroup):
     waiting_for_promo_days = State()
     waiting_for_broadcast_text = State()
     waiting_for_broadcast_confirm = State()
+    waiting_for_link_input = State()
+    waiting_for_link_delete = State()
+    waiting_for_ref_link_input = State()
+    waiting_for_ref_link_delete = State()
     waiting_for_ref_settings = State()
 
 class UserStates(StatesGroup):
@@ -80,6 +64,8 @@ admin_keyboard = ReplyKeyboardMarkup(
         [KeyboardButton(text="👥 Список пользователей")],
         [KeyboardButton(text="✅ Активировать подписку")],
         [KeyboardButton(text="✅ Активировать реферальную подписку")],
+        [KeyboardButton(text="📦 Управление обычными ссылками")],
+        [KeyboardButton(text="📦 Управление реферальными ссылками")],
         [KeyboardButton(text="⚙️ Реферальные настройки")],
         [KeyboardButton(text="🎫 Создать промокод")],
         [KeyboardButton(text="📋 Список промокодов")],
@@ -104,14 +90,12 @@ async def check_subscription(user_id: int) -> bool:
     try:
         member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
         return member.status in ["member", "administrator", "creator"]
-    except Exception as e:
-        logger.error(f"Ошибка проверки подписки для {user_id}: {e}")
+    except Exception:
         return False
 
 # ---------------------------------- команда /start ----------------------------------
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    logger.info(f"Команда /start от {message.from_user.id}")
     args = message.text.split()
     if len(args) > 1:
         ref_data = args[1]
@@ -120,7 +104,6 @@ async def start_cmd(message: types.Message):
             if referrer_id_str.isdigit():
                 referrer_id = int(referrer_id_str)
                 if referrer_id != message.from_user.id:
-                    logger.info(f"Переход по реферальной ссылке от {referrer_id} для {message.from_user.id}")
                     await handle_referral(message.from_user.id, referrer_id)
 
     welcome_text = (
@@ -163,18 +146,6 @@ async def admin_cmd(message: types.Message):
         reply_markup=admin_keyboard
     )
 
-# ---------------------------------- СОЗДАНИЕ ПОДПИСКИ (общая функция) ----------------------------------
-async def create_subscription(tg_id: int, days: int, tariff: str) -> str:
-    """Создаёт клиента в панели и возвращает ссылку."""
-    logger.info(f"Создание подписки для {tg_id} на {days} дней, тариф {tariff}")
-    expire_ts = int(time.time()) + days * 86400
-    email = f"{tariff}_{tg_id}_{int(time.time())}"
-    client_id = await panel.create_client(email, expire_ts, total_gb=0, limit_ip=1 if tariff in ("free", "ref_bonus") else 3)
-    link = await panel.get_client_link(client_id)
-    add_or_update_user(tg_id, tariff, expire_ts, panel_client_id=client_id, current_link=link)
-    logger.info(f"Подписка создана, ссылка: {link[:30]}...")
-    return link
-
 # ---------------------------------- РЕФЕРАЛЬНАЯ СИСТЕМА ----------------------------------
 async def handle_referral(new_user_id: int, referrer_id: int):
     logger.info(f"Обработка реферала: новый {new_user_id}, реферер {referrer_id}")
@@ -193,9 +164,8 @@ async def handle_referral(new_user_id: int, referrer_id: int):
                            last_free=referrer[3], used_free=referrer[4],
                            ref_count=new_ref_count,
                            referrer_id=referrer[5],
-                           panel_client_id=referrer[6],
-                           current_link=referrer[7],
-                           ref_link=referrer[8])
+                           current_link=referrer[6],
+                           ref_link=referrer[7])
         logger.info(f"У реферера {referrer_id} теперь {new_ref_count} рефералов")
 
         required = int(get_setting("ref_required") or 5)
@@ -210,20 +180,24 @@ async def handle_referral(new_user_id: int, referrer_id: int):
 async def give_ref_bonus(tg_id: int):
     logger.info(f"Попытка выдачи бонуса для {tg_id}")
     bonus_days = int(get_setting("ref_bonus_days") or 14)
-    try:
-        link = await create_subscription(tg_id, bonus_days, "ref_bonus")
-        await bot.send_message(
-            tg_id,
-            f"🎉 *Поздравляем! Вы привели {get_setting('ref_required')} пользователей!*\n"
-            f"Вы получили бонусную подписку на {bonus_days} дней!\n"
-            f"🔗 Ваша ссылка:\n`{link}`\n\n"
-            "📌 Вставьте её в V2RayTun / Happ.",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(f"Ошибка выдачи бонуса: {e}")
+    link_data = get_free_ref_link()
+    if not link_data:
+        logger.warning(f"Нет свободных реферальных ссылок для {tg_id}")
         for admin_id in ADMIN_IDS:
-            await bot.send_message(admin_id, f"⚠️ Ошибка при выдаче бонуса пользователю {tg_id}: {e}")
+            await bot.send_message(admin_id, f"⚠️ Закончились реферальные ссылки! Пользователь {tg_id} не получил бонус.")
+        return
+    link_id, link = link_data
+    mark_ref_link_used(link_id, tg_id)
+    expire_ts = int(time.time()) + bonus_days * 86400
+    add_or_update_user(tg_id, "ref_bonus", expire_ts, current_link=link)
+    await bot.send_message(
+        tg_id,
+        f"🎉 *Поздравляем! Вы привели {get_setting('ref_required')} пользователей!*\n"
+        f"Вы получили бонусную подписку на {bonus_days} дней!\n"
+        f"🔗 Ваша ссылка:\n`{link}`\n\n"
+        "📌 Вставьте её в V2RayTun / Happ.",
+        parse_mode="Markdown"
+    )
 
 @dp.message(F.text == "👥 Рефералы")
 async def referral_cmd(message: types.Message):
@@ -237,7 +211,7 @@ async def referral_cmd(message: types.Message):
     required = int(get_setting("ref_required") or 5)
     bonus_days = int(get_setting("ref_bonus_days") or 14)
 
-    ref_link = user[8] if user else None
+    ref_link = user[7] if user else None
     if not ref_link:
         ref_link = f"ref_{tg_id}"
         add_or_update_user(tg_id, user[0], user[1],
@@ -245,8 +219,7 @@ async def referral_cmd(message: types.Message):
                            used_free=user[4] if user else 0,
                            ref_count=ref_count,
                            referrer_id=user[5] if user else None,
-                           panel_client_id=user[6] if user else None,
-                           current_link=user[7] if user else None,
+                           current_link=user[6] if user else None,
                            ref_link=ref_link)
 
     bot_username = BOT_USERNAME
@@ -269,29 +242,36 @@ async def referral_cmd(message: types.Message):
 # ---------------------------------- ВЫДАЧА БЕСПЛАТНОЙ ПОДПИСКИ ----------------------------------
 @dp.callback_query(F.data == "get_free")
 async def get_free(callback: types.CallbackQuery):
-    logger.info(f"🔔 get_free вызвана для пользователя {callback.from_user.id}")
-    await callback.answer()  # подтверждаем получение callback'а
     tg_id = callback.from_user.id
     user = get_user(tg_id)
     now = int(time.time())
 
-    logger.info(f"Пользователь {tg_id}, данные: {user}")
-
-    # Проверяем активную подписку
     if user and user[1] and user[1] > now:
-        logger.info(f"У пользователя уже активна подписка до {user[1]}")
-        await callback.message.answer("⏳ У вас уже активная подписка.")
+        await callback.answer("У вас уже активная подписка.", show_alert=True)
         return
 
-    # Проверяем, использовал ли бесплатную
     if user and user[3] == 1:
-        logger.info(f"Пользователь уже использовал бесплатную подписку")
-        await callback.message.answer("❌ Вы уже использовали бесплатную подписку.")
-        return
+        if user[6]:
+            if user[1] and user[1] > now:
+                time_left = format_time_left(user[1])
+                await callback.message.answer(
+                    f"🔁 *Ваша бесплатная подписка активна!*\n\n"
+                    f"▸ Действует до: `{format_datetime(user[1])}`\n"
+                    f"▸ Осталось: `{time_left}`\n"
+                    f"🔗 *Ваша ссылка:*\n`{user[6]}`\n\n"
+                    "📌 Скопируйте ссылку и вставьте в V2RayTun/Happ.",
+                    parse_mode="Markdown",
+                    reply_markup=back_button
+                )
+                return
+            else:
+                await callback.answer("❌ Ваша бесплатная подписка истекла.", show_alert=True)
+                return
+        else:
+            await callback.answer("❌ Вы уже использовали бесплатную подписку.", show_alert=True)
+            return
 
-    # Проверяем подписку на канал
     if not await check_subscription(tg_id):
-        logger.info(f"Пользователь не подписан на канал")
         await callback.message.answer(
             "🔒 *Для получения бесплатной подписки* подпишитесь на наш канал.\n"
             "После подписки нажмите кнопку проверки.",
@@ -300,53 +280,29 @@ async def get_free(callback: types.CallbackQuery):
         )
         return
 
-    # Создаём подписку
-    try:
-        days = FREE_HOURS // 24
-        link = await create_subscription(tg_id, days, "free")
-        add_or_update_user(tg_id, "free", int(time.time()) + days*86400, used_free=1)
-        logger.info(f"Бесплатная подписка выдана пользователю {tg_id}")
+    link_data = get_free_link()
+    if not link_data:
         await callback.message.answer(
-            f"✅ *Бесплатная подписка активирована!*\n\n"
-            f"▸ Действует до: {format_datetime(int(time.time()) + days*86400)}\n"
-            f"🔗 Ваша ссылка:\n`{link}`\n\n"
-            "📌 Вставьте её в V2RayTun / Happ.",
-            parse_mode="Markdown",
-            reply_markup=back_button
+            "😕 *Нет свободных ссылок.* Обратитесь к администратору.",
+            parse_mode="Markdown"
         )
-    except Exception as e:
-        logger.error(f"Ошибка в get_free: {e}", exc_info=True)
-        await callback.message.answer(f"❌ Ошибка: {str(e)}")
-
-# ---------------------------------- остальные обработчики (инструкция, пробный период, покупка) ----------------------------------
-@dp.callback_query(F.data == "instructions")
-async def show_instructions(callback: types.CallbackQuery):
-    await callback.answer()
+        return
+    link_id, link = link_data
+    mark_link_used(link_id, tg_id)
+    expire_ts = int(time.time()) + FREE_HOURS * 3600
+    add_or_update_user(tg_id, "free", expire_ts, used_free=1, current_link=link)
     await callback.message.answer(
-        "📖 *Инструкция*\n\n"
-        "1. Нажмите «Получить подписку» для бесплатного доступа на 24 часа.\n"
-        "2. Скопируйте полученную ссылку.\n"
-        "3. Откройте V2RayTun / Happ / Shadowrocket и вставьте ссылку.\n"
-        "4. Подключитесь и пользуйтесь.\n\n"
-        "❓ Если нужна помощь — напишите @pasybos",
+        f"✅ *Бесплатная подписка активирована!*\n\n"
+        f"▸ Действует до: {format_datetime(expire_ts)}\n"
+        f"🔗 Ваша ссылка:\n`{link}`\n\n"
+        "📌 Вставьте её в V2RayTun / Happ.",
         parse_mode="Markdown",
         reply_markup=back_button
     )
 
-@dp.callback_query(F.data == "trial")
-async def trial_handler(callback: types.CallbackQuery):
-    await callback.answer()
-    await callback.message.answer(
-        "🎁 *Пробный период*\n\n"
-        "Нажмите «Получить подписку», чтобы активировать бесплатный доступ на 24 часа.\n"
-        "Бесплатная подписка доступна только один раз.",
-        parse_mode="Markdown",
-        reply_markup=back_button
-    )
-
+# ---------------------------------- ОПЛАТА (звёзды) ----------------------------------
 @dp.callback_query(F.data == "buy_menu")
 async def buy_menu(callback: types.CallbackQuery):
-    await callback.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⭐ Купить за звёзды", callback_data="buy_stars_menu")],
         [InlineKeyboardButton(text="💳 Купить за рубли", callback_data="buy_manual")],
@@ -359,10 +315,10 @@ async def buy_menu(callback: types.CallbackQuery):
         parse_mode="Markdown",
         reply_markup=kb
     )
+    await callback.answer()
 
 @dp.callback_query(F.data == "buy_stars_menu")
 async def buy_stars_menu(callback: types.CallbackQuery):
-    await callback.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"Неделя (7 дн.) — 25 ⭐", callback_data="stars_week")],
         [InlineKeyboardButton(text=f"Месяц (30 дн.) — 50 ⭐", callback_data="stars_month")],
@@ -376,6 +332,7 @@ async def buy_stars_menu(callback: types.CallbackQuery):
         parse_mode="Markdown",
         reply_markup=kb
     )
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("stars_"))
 async def buy_stars_tariff(callback: types.CallbackQuery):
@@ -424,22 +381,29 @@ async def successful_payment(message: types.Message):
         return
     days = tariff_data["days"]
 
-    try:
-        link = await create_subscription(user_id, days, f"paid_{tariff_key}")
-        await message.answer(
-            f"✅ *Оплата прошла успешно!*\n\n"
-            f"▸ Подписка активирована на {days} дней.\n"
-            f"▸ Действует до: {format_datetime(int(time.time()) + days*86400)}\n"
-            f"🔗 Ваша ссылка:\n`{link}`\n\n"
-            "📌 Вставьте её в V2RayTun / Happ.",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}", parse_mode="Markdown")
+    link_data = get_free_link()
+    if not link_data:
+        await message.answer("❌ Нет свободных ссылок. Администратор будет уведомлён.")
+        for admin_id in ADMIN_IDS:
+            await bot.send_message(admin_id, f"⚠️ Закончились ссылки! Пользователь {user_id} оплатил, но не получил подписку.")
+        return
+    link_id, link = link_data
+    mark_link_used(link_id, user_id)
+    expire_ts = int(time.time()) + days * 86400
+    add_or_update_user(user_id, f"paid_{tariff_key}", expire_ts, current_link=link)
 
+    await message.answer(
+        f"✅ *Оплата прошла успешно!*\n\n"
+        f"▸ Подписка активирована на {days} дней.\n"
+        f"▸ Действует до: {format_datetime(expire_ts)}\n"
+        f"🔗 Ваша ссылка:\n`{link}`\n\n"
+        "📌 Вставьте её в V2RayTun / Happ.",
+        parse_mode="Markdown"
+    )
+
+# ---------------------------------- РУЧНАЯ ОПЛАТА (через администратора) ----------------------------------
 @dp.callback_query(F.data == "buy_manual")
 async def buy_manual(callback: types.CallbackQuery):
-    await callback.answer()
     await callback.message.edit_text(
         f"💳 *Оплата за рубли*\n\n"
         f"Для покупки подписки свяжитесь с администратором:\n"
@@ -457,6 +421,7 @@ async def buy_manual(callback: types.CallbackQuery):
             [InlineKeyboardButton(text="🔙 Назад", callback_data="buy_menu")]
         ])
     )
+    await callback.answer()
 
 # ---------------------------------- КОМАНДА АДМИНИСТРАТОРА /give_sub ----------------------------------
 @dp.message(Command("give_sub"))
@@ -477,22 +442,26 @@ async def give_sub_command(message: types.Message):
         await message.answer("❌ Неверный формат. ID и дни должны быть числами.")
         return
 
-    try:
-        link = await create_subscription(tg_id, days, "admin_give")
-        await bot.send_message(
-            tg_id,
-            f"🎉 *Администратор активировал подписку!*\n\n"
-            f"▸ Срок: {days} дней\n"
-            f"▸ Действует до: {format_datetime(int(time.time()) + days*86400)}\n"
-            f"🔗 Ссылка:\n`{link}`\n\n"
-            "📌 Вставьте её в V2RayTun / Happ.",
-            parse_mode="Markdown"
-        )
-        await message.answer(f"✅ Подписка для `{tg_id}` активирована на {days} дней.")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
+    link_data = get_free_link()
+    if not link_data:
+        await message.answer("❌ Нет свободных ссылок. Пополните пул.")
+        return
+    link_id, link = link_data
+    mark_link_used(link_id, tg_id)
+    expire_ts = int(time.time()) + days * 86400
+    add_or_update_user(tg_id, "admin_give", expire_ts, current_link=link)
+    await bot.send_message(
+        tg_id,
+        f"🎉 *Администратор активировал подписку!*\n\n"
+        f"▸ Срок: {days} дней\n"
+        f"▸ Действует до: {format_datetime(expire_ts)}\n"
+        f"🔗 Ссылка:\n`{link}`\n\n"
+        "📌 Вставьте её в V2RayTun / Happ.",
+        parse_mode="Markdown"
+    )
+    await message.answer(f"✅ Подписка для `{tg_id}` активирована на {days} дней.")
 
-# ---------------------------------- АДМИН-ПАНЕЛЬ: АКТИВАЦИЯ ПОДПИСКИ ----------------------------------
+# ---------------------------------- АКТИВАЦИЯ ПОДПИСКИ (админ-панель) ----------------------------------
 @dp.message(F.text == "✅ Активировать подписку")
 async def admin_activate_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -525,19 +494,24 @@ async def admin_activate_get_days(message: types.Message, state: FSMContext):
     data = await state.get_data()
     tg_id = data['tg_id']
     await state.clear()
-    try:
-        link = await create_subscription(tg_id, days, "admin_activate")
-        await bot.send_message(
-            tg_id,
-            f"🎉 *Подписка активирована администратором!*\n\n"
-            f"▸ Срок: {days} дней\n"
-            f"▸ Действует до: {format_datetime(int(time.time()) + days*86400)}\n"
-            f"🔗 Ссылка:\n`{link}`",
-            parse_mode="Markdown"
-        )
-        await message.answer(f"✅ Подписка для `{tg_id}` активирована на {days} дней.", reply_markup=admin_keyboard)
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}", reply_markup=admin_keyboard)
+
+    link_data = get_free_link()
+    if not link_data:
+        await message.answer("❌ Нет свободных ссылок. Пополните пул.")
+        return
+    link_id, link = link_data
+    mark_link_used(link_id, tg_id)
+    expire_ts = int(time.time()) + days * 86400
+    add_or_update_user(tg_id, "admin_activate", expire_ts, current_link=link)
+    await bot.send_message(
+        tg_id,
+        f"🎉 *Подписка активирована администратором!*\n\n"
+        f"▸ Срок: {days} дней\n"
+        f"▸ Действует до: {format_datetime(expire_ts)}\n"
+        f"🔗 Ссылка:\n`{link}`",
+        parse_mode="Markdown"
+    )
+    await message.answer(f"✅ Подписка для `{tg_id}` активирована на {days} дней.", reply_markup=admin_keyboard)
 
 # ---------------------------------- РЕФЕРАЛЬНАЯ ПОДПИСКА (админ) ----------------------------------
 @dp.message(F.text == "✅ Активировать реферальную подписку")
@@ -572,19 +546,24 @@ async def admin_ref_activate_get_days(message: types.Message, state: FSMContext)
     data = await state.get_data()
     tg_id = data['tg_id']
     await state.clear()
-    try:
-        link = await create_subscription(tg_id, days, "ref_bonus")
-        await bot.send_message(
-            tg_id,
-            f"🎉 *Реферальная подписка активирована администратором!*\n\n"
-            f"▸ Срок: {days} дней\n"
-            f"▸ Действует до: {format_datetime(int(time.time()) + days*86400)}\n"
-            f"🔗 Ссылка:\n`{link}`",
-            parse_mode="Markdown"
-        )
-        await message.answer(f"✅ Реферальная подписка для `{tg_id}` активирована на {days} дней.", reply_markup=admin_keyboard)
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}", reply_markup=admin_keyboard)
+
+    link_data = get_free_ref_link()
+    if not link_data:
+        await message.answer("❌ Нет свободных реферальных ссылок. Пополните реферальный пул.")
+        return
+    link_id, link = link_data
+    mark_ref_link_used(link_id, tg_id)
+    expire_ts = int(time.time()) + days * 86400
+    add_or_update_user(tg_id, "ref_bonus", expire_ts, current_link=link)
+    await bot.send_message(
+        tg_id,
+        f"🎉 *Реферальная подписка активирована администратором!*\n\n"
+        f"▸ Срок: {days} дней\n"
+        f"▸ Действует до: {format_datetime(expire_ts)}\n"
+        f"🔗 Ссылка:\n`{link}`",
+        parse_mode="Markdown"
+    )
+    await message.answer(f"✅ Реферальная подписка для `{tg_id}` активирована на {days} дней.", reply_markup=admin_keyboard)
 
 # ---------------------------------- РЕФЕРАЛЬНЫЕ НАСТРОЙКИ ----------------------------------
 @dp.message(F.text == "⚙️ Реферальные настройки")
@@ -627,6 +606,254 @@ async def admin_ref_settings_input(message: types.Message, state: FSMContext):
     set_setting("ref_bonus_days", str(bonus))
     await state.clear()
     await message.answer(f"✅ Настройки обновлены: требуется {required} приглашений, бонус {bonus} дней.", reply_markup=admin_keyboard)
+
+# ---------------------------------- УПРАВЛЕНИЕ ОБЫЧНЫМИ ССЫЛКАМИ ----------------------------------
+@dp.message(F.text == "📦 Управление обычными ссылками")
+async def manage_links(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="➕ Добавить обычные ссылки")],
+            [KeyboardButton(text="📋 Список обычных ссылок")],
+            [KeyboardButton(text="🗑️ Удалить обычную ссылку")],
+            [KeyboardButton(text="🔙 Назад в админку")]
+        ],
+        resize_keyboard=True
+    )
+    await message.answer("📦 *Управление обычными ссылками*\n(ссылки для обычных подписок)", parse_mode="Markdown", reply_markup=kb)
+
+@dp.message(F.text == "➕ Добавить обычные ссылки")
+async def add_links_start(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(AdminStates.waiting_for_link_input)
+    await message.answer(
+        "✏️ Введите обычные ссылки (vless://, vmess://, trojan://) — каждая с новой строки, или отправьте .txt файл.\n"
+        "Для отмены введите /cancel",
+        parse_mode="Markdown"
+    )
+
+@dp.message(AdminStates.waiting_for_link_input, F.document)
+async def add_links_from_file(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    document = message.document
+    if document.mime_type != "text/plain":
+        await message.answer("❌ Отправьте текстовый файл (.txt).")
+        return
+    file = await bot.get_file(document.file_id)
+    file_bytes = await bot.download_file(file.file_path)
+    content = file_bytes.getvalue().decode('utf-8', errors='ignore')
+    lines = content.splitlines()
+    added = 0
+    skipped = 0
+    for link in lines:
+        link = link.strip()
+        if link.startswith(("vless://", "vmess://", "trojan://")):
+            try:
+                add_pool_link(link)
+                added += 1
+            except:
+                skipped += 1
+        else:
+            skipped += 1
+    await state.clear()
+    await message.answer(
+        f"✅ Добавлено {added} обычных ссылок, пропущено {skipped} (неверный формат/дубликат).",
+        reply_markup=admin_keyboard
+    )
+
+@dp.message(AdminStates.waiting_for_link_input, F.text)
+async def add_links_process(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if message.text == "/cancel":
+        await state.clear()
+        await message.answer("❌ Отменено.", reply_markup=admin_keyboard)
+        return
+    links = message.text.strip().splitlines()
+    added = 0
+    skipped = 0
+    for link in links:
+        link = link.strip()
+        if link.startswith(("vless://", "vmess://", "trojan://")):
+            try:
+                add_pool_link(link)
+                added += 1
+            except:
+                skipped += 1
+        else:
+            skipped += 1
+    await state.clear()
+    await message.answer(
+        f"✅ Добавлено {added} обычных ссылок, пропущено {skipped} (неверный формат/дубликат).",
+        reply_markup=admin_keyboard
+    )
+
+@dp.message(F.text == "📋 Список обычных ссылок")
+async def list_links(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    links = get_all_pool_links()
+    if not links:
+        await message.answer("📭 Пул обычных ссылок пуст.", reply_markup=admin_keyboard)
+        return
+    text = "📋 *Список обычных ссылок:*\n\n"
+    for link_id, link, used, used_by in links:
+        status = "❌ Использована" if used else "✅ Свободна"
+        used_info = f" (пользователь {used_by})" if used_by else ""
+        text += f"ID `{link_id}`: `{link[:50]}...` — {status}{used_info}\n"
+    await message.answer(text, parse_mode="Markdown", reply_markup=admin_keyboard)
+
+@dp.message(F.text == "🗑️ Удалить обычную ссылку")
+async def delete_link_start(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(AdminStates.waiting_for_link_delete)
+    await message.answer("✏️ Введите ID ссылки для удаления. Для отмены /cancel", parse_mode="Markdown")
+
+@dp.message(AdminStates.waiting_for_link_delete)
+async def delete_link_process(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if message.text == "/cancel":
+        await state.clear()
+        await message.answer("❌ Отменено.", reply_markup=admin_keyboard)
+        return
+    try:
+        link_id = int(message.text.strip())
+        delete_pool_link(link_id)
+        await message.answer(f"✅ Ссылка с ID `{link_id}` удалена.", parse_mode="Markdown", reply_markup=admin_keyboard)
+    except ValueError:
+        await message.answer("❌ Неверный ID, введите число.", reply_markup=admin_keyboard)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}", reply_markup=admin_keyboard)
+    await state.clear()
+
+# ---------------------------------- УПРАВЛЕНИЕ РЕФЕРАЛЬНЫМИ ССЫЛКАМИ ----------------------------------
+@dp.message(F.text == "📦 Управление реферальными ссылками")
+async def manage_ref_links(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="➕ Добавить реферальные ссылки")],
+            [KeyboardButton(text="📋 Список реферальных ссылок")],
+            [KeyboardButton(text="🗑️ Удалить реферальную ссылку")],
+            [KeyboardButton(text="🔙 Назад в админку")]
+        ],
+        resize_keyboard=True
+    )
+    await message.answer("📦 *Управление реферальными ссылками*\n(бонус за приглашения)", parse_mode="Markdown", reply_markup=kb)
+
+@dp.message(F.text == "➕ Добавить реферальные ссылки")
+async def add_ref_links_start(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(AdminStates.waiting_for_ref_link_input)
+    await message.answer(
+        "✏️ Введите реферальные ссылки (vless://, vmess://, trojan://) — каждая с новой строки, или отправьте .txt файл.\n"
+        "Для отмены введите /cancel",
+        parse_mode="Markdown"
+    )
+
+@dp.message(AdminStates.waiting_for_ref_link_input, F.document)
+async def add_ref_links_from_file(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    document = message.document
+    if document.mime_type != "text/plain":
+        await message.answer("❌ Отправьте текстовый файл (.txt).")
+        return
+    file = await bot.get_file(document.file_id)
+    file_bytes = await bot.download_file(file.file_path)
+    content = file_bytes.getvalue().decode('utf-8', errors='ignore')
+    lines = content.splitlines()
+    added = 0
+    skipped = 0
+    for link in lines:
+        link = link.strip()
+        if link.startswith(("vless://", "vmess://", "trojan://")):
+            try:
+                add_ref_pool_link(link)
+                added += 1
+            except:
+                skipped += 1
+        else:
+            skipped += 1
+    await state.clear()
+    await message.answer(
+        f"✅ Добавлено {added} реферальных ссылок, пропущено {skipped} (неверный формат/дубликат).",
+        reply_markup=admin_keyboard
+    )
+
+@dp.message(AdminStates.waiting_for_ref_link_input, F.text)
+async def add_ref_links_process(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if message.text == "/cancel":
+        await state.clear()
+        await message.answer("❌ Отменено.", reply_markup=admin_keyboard)
+        return
+    links = message.text.strip().splitlines()
+    added = 0
+    skipped = 0
+    for link in links:
+        link = link.strip()
+        if link.startswith(("vless://", "vmess://", "trojan://")):
+            try:
+                add_ref_pool_link(link)
+                added += 1
+            except:
+                skipped += 1
+        else:
+            skipped += 1
+    await state.clear()
+    await message.answer(
+        f"✅ Добавлено {added} реферальных ссылок, пропущено {skipped} (неверный формат/дубликат).",
+        reply_markup=admin_keyboard
+    )
+
+@dp.message(F.text == "📋 Список реферальных ссылок")
+async def list_ref_links(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    links = get_all_ref_pool_links()
+    if not links:
+        await message.answer("📭 Реферальный пул ссылок пуст.", reply_markup=admin_keyboard)
+        return
+    text = "📋 *Список реферальных ссылок:*\n\n"
+    for link_id, link, used, used_by in links:
+        status = "❌ Использована" if used else "✅ Свободна"
+        used_info = f" (пользователь {used_by})" if used_by else ""
+        text += f"ID `{link_id}`: `{link[:50]}...` — {status}{used_info}\n"
+    await message.answer(text, parse_mode="Markdown", reply_markup=admin_keyboard)
+
+@dp.message(F.text == "🗑️ Удалить реферальную ссылку")
+async def delete_ref_link_start(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(AdminStates.waiting_for_ref_link_delete)
+    await message.answer("✏️ Введите ID реферальной ссылки для удаления. Для отмены /cancel", parse_mode="Markdown")
+
+@dp.message(AdminStates.waiting_for_ref_link_delete)
+async def delete_ref_link_process(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if message.text == "/cancel":
+        await state.clear()
+        await message.answer("❌ Отменено.", reply_markup=admin_keyboard)
+        return
+    try:
+        link_id = int(message.text.strip())
+        delete_ref_pool_link(link_id)
+        await message.answer(f"✅ Реферальная ссылка с ID `{link_id}` удалена.", parse_mode="Markdown", reply_markup=admin_keyboard)
+    except ValueError:
+        await message.answer("❌ Неверный ID, введите число.", reply_markup=admin_keyboard)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}", reply_markup=admin_keyboard)
+    await state.clear()
 
 # ---------------------------------- ПРОМОКОДЫ ----------------------------------
 @dp.message(F.text == "🎫 Создать промокод")
@@ -685,14 +912,17 @@ async def process_promo_code(message: types.Message, state: FSMContext):
     user = get_user(tg_id)
     if user and user[1] and user[1] > int(time.time()):
         new_expire = user[1] + days * 86400
-        add_or_update_user(tg_id, user[0], new_expire, panel_client_id=user[6], current_link=user[7])
+        add_or_update_user(tg_id, user[0], new_expire, current_link=user[6])
     else:
-        try:
-            link = await create_subscription(tg_id, days, "promo")
-        except Exception as e:
-            await message.answer(f"❌ Ошибка: {e}")
+        link_data = get_free_link()
+        if not link_data:
+            await message.answer("❌ Нет свободных ссылок. Обратитесь к администратору.")
             await state.clear()
             return
+        link_id, link = link_data
+        mark_link_used(link_id, tg_id)
+        expire_ts = int(time.time()) + days * 86400
+        add_or_update_user(tg_id, "promo", expire_ts, current_link=link)
     use_promocode(code, tg_id)
     await state.clear()
     await message.answer(f"✅ Промокод активирован! Добавлено {days} дней.", reply_markup=bottom_menu)
@@ -705,7 +935,7 @@ async def profile_cmd(message: types.Message):
     if not user or user[1] is None or user[1] == 0:
         await message.answer("📭 У вас нет активной подписки.")
         return
-    tariff, expire_ts, _, _, _, _, _, link = user
+    tariff, expire_ts, _, _, _, _, link = user
     now = int(time.time())
     if expire_ts <= now:
         await message.answer("⏳ Подписка истекла.")
@@ -738,7 +968,7 @@ async def agreement_cmd(message: types.Message):
 async def policy_cmd(message: types.Message):
     await message.answer("ℹ️ Политика конфиденциальности: https://telegra.ph/Politika-konfidencialnosti-06-11-43", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📄 Открыть", url="https://telegra.ph/Politika-konfidencialnosti-06-11-43")]]))
 
-# ---------------------------------- СТАТИСТИКА, СПИСОК ПОЛЬЗОВАТЕЛЕЙ, РАССЫЛКА ----------------------------------
+# ---------------------------------- АДМИН-ПАНЕЛЬ: СТАТИСТИКА, СПИСОК, РАССЫЛКА ----------------------------------
 @dp.message(F.text == "👥 Список пользователей")
 async def admin_list_users(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
@@ -851,50 +1081,9 @@ async def admin_broadcast_cancel(callback: types.CallbackQuery, state: FSMContex
     await callback.message.edit_text("❌ Рассылка отменена.")
     await state.clear()
 
-# ---------------------------------- ВЕБ-СЕРВЕР ----------------------------------
-async def handle_user_subscription(request):
-    path = request.match_info.get('path', '')
-    parts = path.split('/')
-    if len(parts) != 3:
-        return web.Response(text="", status=404)
-    tg_id_str, file_type = parts[1], parts[2]
-    if file_type not in ("free.txt", "paid.txt"):
-        return web.Response(text="", status=404)
-    try:
-        tg_id = int(tg_id_str)
-    except ValueError:
-        return web.Response(text="", status=404)
-
-    user = get_user(tg_id)
-    if not user or user[1] is None or user[1] <= int(time.time()):
-        return web.Response(text="", status=404)
-
-    expire_ts = user[1]
-    client_id = user[6]
-    if not client_id:
-        return web.Response(text="", status=404)
-    try:
-        link = await panel.get_client_link(client_id)
-    except:
-        return web.Response(text="", status=404)
-
-    header = f"# {VPN_NAME} - active until: {format_datetime(expire_ts)}\n"
-    content = header + link
-    return web.Response(text=content, content_type="text/plain")
-
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get('/user/{path:.*}', handle_user_subscription)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT)
-    await site.start()
-    print(f"✅ Веб-сервер запущен на порту {WEB_SERVER_PORT}")
-
 # ---------------------------------- ЗАПУСК ----------------------------------
 async def main():
     init_db()
-    asyncio.create_task(start_web_server())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
