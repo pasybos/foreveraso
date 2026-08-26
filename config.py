@@ -28,11 +28,11 @@ TARIFFS = {
 ALL_POOLS = ["free", "ref", "week", "month", "halfyear", "year", "forever"]
 
 POOL_LABELS = {
-    "free":     "Бесплатные (24ч)",
-    "ref":      "Реферальные (14д)",
-    "week":     "Неделя (7д)",
-    "month":    "Месяц (30д)",
-    "halfyear": "Полгода (180д)",
-    "year":     "Год (365д)",
-    "forever":  "Навсегда (3650д)",
+    "free":     "Бесплатные",
+    "ref":      "Реферальные",
+    "week":     "Неделя",
+    "month":    "Месяц",
+    "halfyear": "Полгода",
+    "year":     "Год",
+    "forever":  "Навсегда",
 }
