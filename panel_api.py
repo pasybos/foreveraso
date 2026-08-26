@@ -23,37 +23,62 @@ class PanelAPI:
     async def _login(self):
         session = await self._get_session()
         login_url = f"{self.base_url}/login"
-        # 1. Получаем страницу логина
-        async with session.get(login_url) as resp:
-            if resp.status != 200:
-                raise Exception(f"Не удалось получить страницу логина (статус {resp.status})")
-            html = await resp.text()
-            # Ищем CSRF-токен
-            csrf_token = None
-            match = re.search(r'name="csrf_token"\s+value="([^"]+)"', html)
-            if match:
-                csrf_token = match.group(1)
-            else:
-                match = re.search(r'<meta name="csrf-token"\s+content="([^"]+)"', html)
-                if match:
-                    csrf_token = match.group(1)
-            if not csrf_token:
-                logger.warning("CSRF-токен не найден, пробуем без него")
-        # 2. Отправляем логин
+        csrf_token = None
+
+        # Пробуем получить CSRF-токен (если страница логина доступна)
+        try:
+            async with session.get(login_url) as resp:
+                if resp.status == 200:
+                    html = await resp.text()
+                    match = re.search(r'name="csrf_token"\s+value="([^"]+)"', html)
+                    if match:
+                        csrf_token = match.group(1)
+                    else:
+                        match = re.search(r'<meta name="csrf-token"\s+content="([^"]+)"', html)
+                        if match:
+                            csrf_token = match.group(1)
+                else:
+                    logger.warning(f"GET /login вернул {resp.status}, пробуем без CSRF")
+        except Exception as e:
+            logger.warning(f"Ошибка при получении страницы логина: {e}")
+
+        # Пробуем логиниться с JSON
         data = {"username": PANEL_USERNAME, "password": PANEL_PASSWORD}
         if csrf_token:
             data["csrf_token"] = csrf_token
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        async with session.post(login_url, data=data, headers=headers) as resp:
-            if resp.status == 200:
-                self.cookies = session.cookie_jar
-                self.logged_in = True
-                logger.info("✅ Успешная авторизация в панели")
-                return True
-            else:
-                error = await resp.text()
-                logger.error(f"❌ Ошибка авторизации: {resp.status} - {error}")
-                raise Exception(f"Не удалось войти в панель: {error}")
+        try:
+            async with session.post(login_url, json=data) as resp:
+                if resp.status == 200:
+                    self.cookies = session.cookie_jar
+                    self.logged_in = True
+                    logger.info("✅ Успешная авторизация (JSON)")
+                    return
+        except Exception as e:
+            logger.warning(f"JSON-логин не удался: {e}")
+
+        # Пробуем form-data
+        try:
+            async with session.post(login_url, data=data) as resp:
+                if resp.status == 200:
+                    self.cookies = session.cookie_jar
+                    self.logged_in = True
+                    logger.info("✅ Успешная авторизация (form-data)")
+                    return
+        except Exception as e:
+            logger.warning(f"form-data логин не удался: {e}")
+
+        # Пробуем form-data без CSRF
+        try:
+            async with session.post(login_url, data={"username": PANEL_USERNAME, "password": PANEL_PASSWORD}) as resp:
+                if resp.status == 200:
+                    self.cookies = session.cookie_jar
+                    self.logged_in = True
+                    logger.info("✅ Успешная авторизация (без CSRF)")
+                    return
+        except Exception as e:
+            logger.warning(f"логин без CSRF не удался: {e}")
+
+        raise Exception("Не удалось войти в панель ни одним из способов")
 
     async def _ensure_login(self):
         if not self.logged_in:
@@ -62,7 +87,6 @@ class PanelAPI:
     async def _request(self, method, endpoint, data=None):
         await self._ensure_login()
         session = await self._get_session()
-        # Пробуем разные пути к API
         possible_paths = ["/panel/api/", "/api/", "/xui/API/"]
         for path in possible_paths:
             url = f"{self.base_url}{path}{endpoint.lstrip('/')}"
