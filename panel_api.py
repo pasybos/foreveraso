@@ -24,8 +24,8 @@ class PanelAPI:
         session = await self._get_session()
         login_url = f"{self.base_url}/login"
         data = {
-            "username": P4Zo2Vjuot,
-            "password": CfELWwjjko
+            "username": PANEL_USERNAME,
+            "password": PANEL_PASSWORD
         }
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         async with session.post(login_url, data=data, headers=headers) as resp:
