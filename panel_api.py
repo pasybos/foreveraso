@@ -1,7 +1,6 @@
 import aiohttp
-import re
 import logging
-from config import PANEL_URL, PANEL_USERNAME, PANEL_PASSWORD, PANEL_INBOUND_ID
+from config import PANEL_URL, PANEL_USERNAME, PANEL_PASSWORD, PANEL_INBOUND_ID, API_TOKEN, API_BASE_PATH
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -9,76 +8,37 @@ logger = logging.getLogger(__name__)
 class PanelAPI:
     def __init__(self):
         self.session = None
-        self.cookies = None
+        self.token = API_TOKEN
         self.base_url = PANEL_URL.rstrip('/')
         self.inbound_id = PANEL_INBOUND_ID
-        self.logged_in = False
+        self.api_base = API_BASE_PATH.rstrip('/') + '/'
 
     async def _get_session(self):
         if self.session is None:
             self.session = aiohttp.ClientSession()
         return self.session
 
-    async def _login(self):
+    async def _request(self, method, endpoint, data=None, retries=2):
         session = await self._get_session()
-        login_url = f"{self.base_url}/login"
-        
-        # 1. Получаем страницу логина, извлекаем CSRF-токен
-        async with session.get(login_url) as resp:
-            if resp.status != 200:
-                raise Exception("Не удалось получить страницу логина")
-            html = await resp.text()
-            # Ищем CSRF-токен
-            csrf_token = None
-            # Попробуем найти в input
-            match = re.search(r'name="csrf_token"\s+value="([^"]+)"', html)
-            if match:
-                csrf_token = match.group(1)
-            else:
-                # Попробуем в meta
-                match = re.search(r'<meta name="csrf-token"\s+content="([^"]+)"', html)
-                if match:
-                    csrf_token = match.group(1)
-            if not csrf_token:
-                logger.warning("CSRF-токен не найден, пробуем без него")
-        
-        # 2. Отправляем POST с данными и CSRF-токеном (если есть)
-        data = {
-            "username": PANEL_USERNAME,
-            "password": PANEL_PASSWORD
+        url = f"{self.base_url}{self.api_base}{endpoint.lstrip('/')}"
+        headers = {
+            "Content-Type": "application/json",
+            "X-API-Key": self.token,
+            "Authorization": f"Bearer {self.token}"
         }
-        if csrf_token:
-            data["csrf_token"] = csrf_token
-        
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        async with session.post(login_url, data=data, headers=headers) as resp:
-            if resp.status == 200:
-                self.cookies = session.cookie_jar
-                self.logged_in = True
-                logger.info("✅ Успешная авторизация в панели")
-                return True
-            else:
-                error = await resp.text()
-                logger.error(f"❌ Ошибка авторизации: {resp.status} - {error}")
-                raise Exception(f"Не удалось войти в панель: {error}")
-
-    async def _ensure_login(self):
-        if not self.logged_in:
-            await self._login()
-
-    async def _request(self, method, endpoint, data=None):
-        await self._ensure_login()
-        session = await self._get_session()
-        url = f"{self.base_url}/panel/api/{endpoint.lstrip('/')}"
-        logger.info(f"Запрос: {method} {url}")
-        headers = {"Content-Type": "application/json"}
-        async with session.request(method, url, json=data, headers=headers) as resp:
-            logger.info(f"Ответ: {resp.status}")
-            if resp.status != 200:
-                error_text = await resp.text()
-                logger.error(f"Ошибка {resp.status}: {error_text}")
-                raise Exception(f"HTTP {resp.status}: {error_text}")
-            return await resp.json()
+        for attempt in range(retries):
+            try:
+                async with session.request(method, url, json=data, headers=headers, timeout=10) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        logger.error(f"Ошибка {resp.status}: {error_text}")
+                        raise Exception(f"HTTP {resp.status}: {error_text}")
+                    return await resp.json()
+            except Exception as e:
+                logger.warning(f"Попытка {attempt+1} не удалась: {e}")
+                if attempt == retries-1:
+                    raise
+                await asyncio.sleep(1)
 
     async def create_client(self, email: str, expire_timestamp: int, total_gb: int = 0, limit_ip: int = 0):
         import uuid
@@ -109,15 +69,6 @@ class PanelAPI:
         for client in clients:
             if client.get('id') == client_id:
                 return client.get('link', '')
-        raise Exception("Клиент не найден")
-
-    async def get_client(self, client_id: str):
-        result = await self._request('GET', f'inbounds/get/{self.inbound_id}')
-        inbound = result.get('obj', {})
-        clients = inbound.get('clients', [])
-        for client in clients:
-            if client.get('id') == client_id:
-                return client
         raise Exception("Клиент не найден")
 
     async def delete_client(self, client_id: str):
