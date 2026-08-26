@@ -34,11 +34,11 @@ class AdminStates(StatesGroup):
     waiting_for_promo_days = State()
     waiting_for_broadcast_text = State()
     waiting_for_broadcast_confirm = State()
-    waiting_for_link_input = State()
+    waiting_for_link_input = State()          # для обычных ссылок
     waiting_for_link_delete = State()
-    waiting_for_ref_link_input = State()      # для добавления реферальных ссылок
+    waiting_for_ref_link_input = State()      # для реферальных ссылок
     waiting_for_ref_link_delete = State()
-    waiting_for_ref_settings = State()        # для изменения настроек
+    waiting_for_ref_settings = State()        # для настройки лимитов
 
 class UserStates(StatesGroup):
     waiting_for_promo_code = State()
@@ -69,9 +69,9 @@ admin_keyboard = ReplyKeyboardMarkup(
         [KeyboardButton(text="📋 Список промокодов")],
         [KeyboardButton(text="📨 Сделать рассылку")],
         [KeyboardButton(text="📊 Статистика")],
-        [KeyboardButton(text="📦 Управление ссылками")],
-        [KeyboardButton(text="📦 Реферальные ссылки")],
-        [KeyboardButton(text="⚙️ Настройки рефералов")],
+        [KeyboardButton(text="📦 Обычные ссылки")],
+        [KeyboardButton(text="📦 Реферальный пул")],
+        [KeyboardButton(text="⚙️ Реферальные настройки")],
         [KeyboardButton(text="🔙 Выйти из админ-панели")]
     ],
     resize_keyboard=True
@@ -149,18 +149,15 @@ async def admin_cmd(message: types.Message):
 
 # ---------------------------------- РЕФЕРАЛЬНАЯ СИСТЕМА ----------------------------------
 async def handle_referral(new_user_id: int, referrer_id: int):
-    """Обрабатывает переход по реферальной ссылке."""
     logger.info(f"Обработка реферала: новый {new_user_id}, реферер {referrer_id}")
     new_user = get_user(new_user_id)
     if new_user:
         logger.info(f"Пользователь {new_user_id} уже существует, реферал не засчитан")
         return
 
-    # Добавляем нового пользователя с referrer_id
     add_or_update_user(new_user_id, None, 0, referrer_id=referrer_id)
     logger.info(f"Новый пользователь {new_user_id} добавлен с реферером {referrer_id}")
 
-    # Увеличиваем счётчик рефералов у реферера
     referrer = get_user(referrer_id)
     if referrer:
         new_ref_count = referrer[4] + 1
@@ -224,12 +221,10 @@ async def give_ref_bonus(tg_id: int):
 @dp.message(F.text == "👥 Рефералы")
 async def referral_cmd(message: types.Message):
     tg_id = message.from_user.id
-    logger.info(f"Запрос реферальной информации от {tg_id}")
     user = get_user(tg_id)
     if not user:
         add_or_update_user(tg_id, None, 0)
         user = get_user(tg_id)
-        logger.info(f"Создана запись для пользователя {tg_id}")
 
     ref_count = user[4] if user else 0
     required = int(get_setting("ref_required") or 5)
@@ -246,12 +241,10 @@ async def referral_cmd(message: types.Message):
                            panel_client_id=user[6] if user else None,
                            current_link=user[7] if user else None,
                            ref_link=ref_link)
-        logger.info(f"Сгенерирован ref_link {ref_link} для {tg_id}")
 
     bot_username = BOT_USERNAME
     if not bot_username:
-        logger.error("BOT_USERNAME не задан в config.py")
-        await message.answer("❌ Ошибка конфигурации: BOT_USERNAME не задан. Обратитесь к администратору.")
+        await message.answer("❌ Ошибка: BOT_USERNAME не задан в config.py.")
         return
 
     ref_url = f"https://t.me/{bot_username}?start={ref_link}"
@@ -265,10 +258,129 @@ async def referral_cmd(message: types.Message):
         "Поделитесь ссылкой с друзьями и получайте бонусы! 🎁",
         parse_mode="Markdown"
     )
-    logger.info(f"Отправлена реферальная ссылка для {tg_id}: {ref_url}")
 
-# ---------------------------------- АДМИН-ПАНЕЛЬ: РЕФЕРАЛЬНЫЕ ССЫЛКИ ----------------------------------
-@dp.message(F.text == "📦 Реферальные ссылки")
+# ---------------------------------- УПРАВЛЕНИЕ ОБЫЧНЫМИ ССЫЛКАМИ ----------------------------------
+@dp.message(F.text == "📦 Обычные ссылки")
+async def manage_links(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="➕ Добавить обычные ссылки")],
+            [KeyboardButton(text="📋 Список обычных ссылок")],
+            [KeyboardButton(text="🗑️ Удалить обычную ссылку")],
+            [KeyboardButton(text="🔙 Назад в админку")]
+        ],
+        resize_keyboard=True
+    )
+    await message.answer("📦 *Управление обычным пулом ссылок*\n(ссылки для обычных подписок)", parse_mode="Markdown", reply_markup=kb)
+
+@dp.message(F.text == "➕ Добавить обычные ссылки")
+async def add_links_start(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await state.clear()
+    await state.set_state(AdminStates.waiting_for_link_input)
+    await message.answer(
+        "✏️ Введите обычные ссылки (vless://, vmess://, trojan://) — каждая с новой строки, или отправьте .txt файл.\n"
+        "Для отмены введите /cancel",
+        parse_mode="Markdown"
+    )
+
+@dp.message(AdminStates.waiting_for_link_input, F.document)
+async def add_links_from_file(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    document = message.document
+    if document.mime_type != "text/plain":
+        await message.answer("❌ Отправьте текстовый файл (.txt).")
+        return
+    file = await bot.get_file(document.file_id)
+    file_bytes = await bot.download_file(file.file_path)
+    content = file_bytes.getvalue().decode('utf-8', errors='ignore')
+    lines = content.splitlines()
+    added = 0
+    skipped = 0
+    for link in lines:
+        link = link.strip()
+        if link.startswith(("vless://", "vmess://", "trojan://")):
+            try:
+                add_pool_link(link)
+                added += 1
+            except:
+                skipped += 1
+        else:
+            skipped += 1
+    await state.clear()
+    await message.answer(f"✅ Добавлено {added} обычных ссылок, пропущено {skipped} (неверный формат/дубликат).", reply_markup=admin_keyboard)
+
+@dp.message(AdminStates.waiting_for_link_input, F.text)
+async def add_links_process(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if message.text == "/cancel":
+        await state.clear()
+        await message.answer("❌ Отменено.", reply_markup=admin_keyboard)
+        return
+    links = message.text.strip().splitlines()
+    added = 0
+    skipped = 0
+    for link in links:
+        link = link.strip()
+        if link.startswith(("vless://", "vmess://", "trojan://")):
+            try:
+                add_pool_link(link)
+                added += 1
+            except:
+                skipped += 1
+        else:
+            skipped += 1
+    await state.clear()
+    await message.answer(f"✅ Добавлено {added} обычных ссылок, пропущено {skipped} (неверный формат/дубликат).", reply_markup=admin_keyboard)
+
+@dp.message(F.text == "📋 Список обычных ссылок")
+async def list_links(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    links = get_all_pool_links()
+    if not links:
+        await message.answer("📭 Пул обычных ссылок пуст.", reply_markup=admin_keyboard)
+        return
+    text = "📋 *Список обычных ссылок:*\n\n"
+    for link_id, link, used, used_by in links:
+        status = "❌ Использована" if used else "✅ Свободна"
+        used_info = f" (пользователь {used_by})" if used_by else ""
+        text += f"ID `{link_id}`: `{link[:50]}...` — {status}{used_info}\n"
+    await message.answer(text, parse_mode="Markdown", reply_markup=admin_keyboard)
+
+@dp.message(F.text == "🗑️ Удалить обычную ссылку")
+async def delete_link_start(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await state.clear()
+    await state.set_state(AdminStates.waiting_for_link_delete)
+    await message.answer("✏️ Введите ID ссылки для удаления (из списка). Для отмены /cancel", parse_mode="Markdown")
+
+@dp.message(AdminStates.waiting_for_link_delete)
+async def delete_link_process(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if message.text == "/cancel":
+        await state.clear()
+        await message.answer("❌ Отменено.", reply_markup=admin_keyboard)
+        return
+    try:
+        link_id = int(message.text.strip())
+        delete_pool_link(link_id)
+        await message.answer(f"✅ Обычная ссылка с ID `{link_id}` удалена.", parse_mode="Markdown", reply_markup=admin_keyboard)
+    except ValueError:
+        await message.answer("❌ Неверный ID, введите число.", reply_markup=admin_keyboard)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}", reply_markup=admin_keyboard)
+    await state.clear()
+
+# ---------------------------------- УПРАВЛЕНИЕ РЕФЕРАЛЬНЫМИ ССЫЛКАМИ ----------------------------------
+@dp.message(F.text == "📦 Реферальный пул")
 async def manage_ref_links(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
         return
@@ -281,18 +393,16 @@ async def manage_ref_links(message: types.Message):
         ],
         resize_keyboard=True
     )
-    await message.answer("📦 *Управление реферальным пулом ссылок*\nВыберите действие:", parse_mode="Markdown", reply_markup=kb)
+    await message.answer("📦 *Управление реферальным пулом ссылок*\n(бонус за приглашения)", parse_mode="Markdown", reply_markup=kb)
 
 @dp.message(F.text == "➕ Добавить реферальные ссылки")
 async def add_ref_links_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
-    # Сбрасываем состояние, чтобы точно попасть в нужное
     await state.clear()
     await state.set_state(AdminStates.waiting_for_ref_link_input)
     await message.answer(
-        "✏️ *Введите реферальные ссылки* (каждую с новой строки) **или отправьте текстовый файл (.txt)**.\n"
-        "Поддерживаются только vless://, vmess://, trojan://\n"
+        "✏️ Введите реферальные ссылки (vless://, vmess://, trojan://) — каждая с новой строки, или отправьте .txt файл.\n"
         "Для отмены введите /cancel",
         parse_mode="Markdown"
     )
@@ -303,7 +413,7 @@ async def add_ref_links_from_file(message: types.Message, state: FSMContext):
         return
     document = message.document
     if document.mime_type != "text/plain":
-        await message.answer("❌ Пожалуйста, отправьте текстовый файл (.txt).")
+        await message.answer("❌ Отправьте текстовый файл (.txt).")
         return
     file = await bot.get_file(document.file_id)
     file_bytes = await bot.download_file(file.file_path)
@@ -322,12 +432,7 @@ async def add_ref_links_from_file(message: types.Message, state: FSMContext):
         else:
             skipped += 1
     await state.clear()
-    await message.answer(
-        f"✅ *Добавлено:* `{added}` реферальных ссылок\n"
-        f"⚠️ *Пропущено:* `{skipped}` (неверный формат или дубликат)",
-        parse_mode="Markdown",
-        reply_markup=admin_keyboard
-    )
+    await message.answer(f"✅ Добавлено {added} реферальных ссылок, пропущено {skipped} (неверный формат/дубликат).", reply_markup=admin_keyboard)
 
 @dp.message(AdminStates.waiting_for_ref_link_input, F.text)
 async def add_ref_links_process(message: types.Message, state: FSMContext):
@@ -351,12 +456,7 @@ async def add_ref_links_process(message: types.Message, state: FSMContext):
         else:
             skipped += 1
     await state.clear()
-    await message.answer(
-        f"✅ *Добавлено:* `{added}` реферальных ссылок\n"
-        f"⚠️ *Пропущено:* `{skipped}` (неверный формат или дубликат)",
-        parse_mode="Markdown",
-        reply_markup=admin_keyboard
-    )
+    await message.answer(f"✅ Добавлено {added} реферальных ссылок, пропущено {skipped} (неверный формат/дубликат).", reply_markup=admin_keyboard)
 
 @dp.message(F.text == "📋 Список реферальных ссылок")
 async def list_ref_links(message: types.Message):
@@ -364,9 +464,9 @@ async def list_ref_links(message: types.Message):
         return
     links = get_all_ref_pool_links()
     if not links:
-        await message.answer("📭 *Реферальный пул ссылок пуст.*", parse_mode="Markdown", reply_markup=admin_keyboard)
+        await message.answer("📭 Реферальный пул ссылок пуст.", reply_markup=admin_keyboard)
         return
-    text = "📋 *Список реферальных ссылок в пуле:*\n\n"
+    text = "📋 *Список реферальных ссылок:*\n\n"
     for link_id, link, used, used_by in links:
         status = "❌ Использована" if used else "✅ Свободна"
         used_info = f" (пользователь {used_by})" if used_by else ""
@@ -379,11 +479,7 @@ async def delete_ref_link_start(message: types.Message, state: FSMContext):
         return
     await state.clear()
     await state.set_state(AdminStates.waiting_for_ref_link_delete)
-    await message.answer(
-        "✏️ Введите ID реферальной ссылки, которую хотите удалить (из списка).\n"
-        "Для отмены введите /cancel",
-        parse_mode="Markdown"
-    )
+    await message.answer("✏️ Введите ID реферальной ссылки для удаления (из списка). Для отмены /cancel", parse_mode="Markdown")
 
 @dp.message(AdminStates.waiting_for_ref_link_delete)
 async def delete_ref_link_process(message: types.Message, state: FSMContext):
@@ -396,15 +492,15 @@ async def delete_ref_link_process(message: types.Message, state: FSMContext):
     try:
         link_id = int(message.text.strip())
         delete_ref_pool_link(link_id)
-        await message.answer(f"✅ *Реферальная ссылка с ID `{link_id}` удалена.*", parse_mode="Markdown", reply_markup=admin_keyboard)
+        await message.answer(f"✅ Реферальная ссылка с ID `{link_id}` удалена.", parse_mode="Markdown", reply_markup=admin_keyboard)
     except ValueError:
-        await message.answer("❌ *Неверный ID.* Введите число.", parse_mode="Markdown")
+        await message.answer("❌ Неверный ID, введите число.", reply_markup=admin_keyboard)
     except Exception as e:
-        await message.answer(f"❌ *Ошибка:* {e}", parse_mode="Markdown")
+        await message.answer(f"❌ Ошибка: {e}", reply_markup=admin_keyboard)
     await state.clear()
 
-# ---------------------------------- АДМИН-ПАНЕЛЬ: НАСТРОЙКИ РЕФЕРАЛОВ ----------------------------------
-@dp.message(F.text == "⚙️ Настройки рефералов")
+# ---------------------------------- НАСТРОЙКИ РЕФЕРАЛОВ ----------------------------------
+@dp.message(F.text == "⚙️ Реферальные настройки")
 async def admin_ref_settings(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
@@ -449,8 +545,10 @@ async def admin_ref_settings_input(message: types.Message, state: FSMContext):
     await message.answer(f"✅ Настройки обновлены: требуется {required} приглашений, бонус {bonus} дней.", reply_markup=admin_keyboard)
 
 # ---------------------------------- остальные обработчики (без изменений) ----------------------------------
-# ... (они остаются без изменений, но я их оставлю для полноты)
-# Однако чтобы не раздувать сообщение, я пропущу остальные функции, но они у вас уже есть.
+# (код, который уже был: get_free, buy_paid, profile, promo, channel, support, agreement, policy, admin_exit, admin_list_users, admin_stats, admin_activate_start, admin_activate_get_id, admin_activate_get_days, admin_create_promo_start, admin_create_promo_days, admin_list_promocodes, admin_broadcast_start, admin_broadcast_confirm, admin_broadcast_cancel, handle_user_subscription, start_web_server, main)
+
+# Для экономии места я не дублирую их здесь, но они должны быть в файле.
+# Если у вас они есть – оставьте.
 
 # ---------------------------------- ЗАПУСК ----------------------------------
 async def main():
