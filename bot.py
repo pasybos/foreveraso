@@ -276,11 +276,9 @@ async def get_free(callback: types.CallbackQuery):
 
     try:
         expire_ts = now + FREE_HOURS * 3600
-        # Создаём клиента в панели через API
         email = f"user_{tg_id}_{int(time.time())}"
-        client_id = await panel.create_client(email, expire_ts, total_gb=5, limit_ip=1)
-        # Получаем vless-ссылку для клиента (она не нужна, но можно использовать)
-        # Генерируем ссылку на файл подписки
+        # ИСПРАВЛЕНО: total_gb=0 (безлимит)
+        client_id = await panel.create_client(email, expire_ts, total_gb=0, limit_ip=1)
         sub_link = f"{PUBLIC_URL}/user/{tg_id}/free.txt"
         add_or_update_user(tg_id, "free", expire_ts, last_free=now, used_free=1, panel_client_id=client_id, current_link=sub_link)
 
@@ -400,16 +398,15 @@ async def process_promo_code(message: types.Message, state: FSMContext):
     user = get_user(tg_id)
     now = int(time.time())
     if user and user[1] and user[1] > now:
-        # Если есть активная подписка, просто продлеваем
         new_expire = user[1] + days * 86400
         add_or_update_user(tg_id, user[0], new_expire, current_link=user[7])
         expire_display = format_datetime(new_expire)
     else:
-        # Создаём клиента и выдаём ссылку на файл
         try:
             expire_ts = now + days * 86400
             email = f"promo_{tg_id}_{int(time.time())}"
-            client_id = await panel.create_client(email, expire_ts, total_gb=100, limit_ip=3)
+            # ИСПРАВЛЕНО: total_gb=0 (безлимит)
+            client_id = await panel.create_client(email, expire_ts, total_gb=0, limit_ip=3)
             sub_link = f"{PUBLIC_URL}/user/{tg_id}/free.txt"
             add_or_update_user(tg_id, "promo", expire_ts, panel_client_id=client_id, current_link=sub_link)
             expire_display = format_datetime(expire_ts)
@@ -565,11 +562,11 @@ async def admin_activate_get_days(message: types.Message, state: FSMContext):
     tg_id = data['tg_id']
     await state.clear()
 
-    # Создаём клиента в панели
     try:
         expire_ts = int(time.time()) + days * 86400
         email = f"admin_{tg_id}_{int(time.time())}"
-        client_id = await panel.create_client(email, expire_ts, total_gb=100, limit_ip=3)
+        # ИСПРАВЛЕНО: total_gb=0 (безлимит)
+        client_id = await panel.create_client(email, expire_ts, total_gb=0, limit_ip=3)
         sub_link = f"{PUBLIC_URL}/user/{tg_id}/free.txt"
         add_or_update_user(tg_id, "paid", expire_ts, panel_client_id=client_id, current_link=sub_link)
 
@@ -739,19 +736,6 @@ async def handle_user_subscription(request):
         return web.Response(text="", status=404)
 
     expire_ts = user[1]
-    # Формируем список серверов (один ваш сервер)
-    # Можно брать из панели или использовать статичный список
-    # Здесь мы используем один сервер (ваш) с параметрами Reality
-    # Чтобы получить ссылку на клиента, можно использовать panel.get_client_link, но у нас уже есть клиент в панели
-    # Для простоты мы будем использовать vless-ссылку клиента, которая уже есть в БД (current_link), но она одиночная.
-    # Но мы хотим отдавать файл, содержащий сервер с правильным сроком.
-    # Лучше всего сгенерировать vless-ссылку для клиента и добавить в файл.
-    # Так как у нас есть panel_client_id, можно получить ссылку через API.
-    # Но для упрощения можно использовать статичную vless-ссылку (с общим ключом),
-    # но тогда все пользователи будут использовать один ключ – плохо.
-    # Поэтому мы будем получать ссылку через API по panel_client_id.
-    # Если нет panel_client_id (для старых записей), попробуем создать нового клиента.
-    # Реализуем:
     client_id = user[6]
     if not client_id:
         return web.Response(text="", status=404)
