@@ -1,7 +1,7 @@
 import aiohttp
 import asyncio
 import logging
-from config import PANEL_URL, PANEL_USERNAME, PANEL_PASSWORD, PANEL_INBOUND_ID, API_TOKEN, API_BASE_PATH
+from config import PANEL_URL, PANEL_USERNAME, PANEL_PASSWORD, PANEL_INBOUND_ID
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -9,37 +9,60 @@ logger = logging.getLogger(__name__)
 class PanelAPI:
     def __init__(self):
         self.session = None
-        self.token = API_TOKEN
+        self.cookies = None
         self.base_url = PANEL_URL.rstrip('/')
         self.inbound_id = PANEL_INBOUND_ID
-        self.api_base = API_BASE_PATH.rstrip('/') + '/'
+        self.logged_in = False
 
     async def _get_session(self):
         if self.session is None:
             self.session = aiohttp.ClientSession()
         return self.session
 
-    async def _request(self, method, endpoint, data=None, retries=3):
+    async def _login(self):
+        """Авторизуется в панели и сохраняет куки."""
         session = await self._get_session()
-        url = f"{self.base_url}{self.api_base}{endpoint.lstrip('/')}"
-        headers = {
-            "Content-Type": "application/json",
-            "X-API-Key": self.token,
-            "Authorization": f"Bearer {self.token}"
+        login_url = f"{self.base_url}/login"
+        data = {
+            "username": P4Zo2Vjuot,
+            "password": CfELWwjjko
         }
-        for attempt in range(retries):
-            try:
-                async with session.request(method, url, json=data, headers=headers, timeout=10) as resp:
-                    if resp.status != 200:
-                        error_text = await resp.text()
-                        logger.error(f"Ошибка {resp.status}: {error_text}")
-                        raise Exception(f"HTTP {resp.status}: {error_text}")
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        async with session.post(login_url, data=data, headers=headers) as resp:
+            if resp.status == 200:
+                self.cookies = session.cookie_jar
+                self.logged_in = True
+                logger.info("✅ Успешная авторизация в панели")
+                return True
+            else:
+                error = await resp.text()
+                logger.error(f"❌ Ошибка авторизации: {resp.status} - {error}")
+                raise Exception(f"Не удалось войти в панель: {error}")
+
+    async def _ensure_login(self):
+        if not self.logged_in:
+            await self._login()
+
+    async def _request(self, method, endpoint, data=None):
+        """Выполняет запрос к API с куками сессии."""
+        await self._ensure_login()
+        session = await self._get_session()
+        # Пробуем разные пути
+        possible_paths = ["/panel/api/", "/xui/API/", "/api/"]
+        for path in possible_paths:
+            url = f"{self.base_url}{path}{endpoint.lstrip('/')}"
+            logger.info(f"Попытка запроса: {method} {url}")
+            async with session.request(method, url, json=data, headers={"Content-Type": "application/json"}, cookies=self.cookies) as resp:
+                if resp.status == 200:
+                    logger.info(f"Успешный ответ от {url}")
                     return await resp.json()
-            except Exception as e:
-                logger.warning(f"Попытка {attempt+1} не удалась: {e}")
-                if attempt == retries-1:
-                    raise
-                await asyncio.sleep(2)
+                elif resp.status == 404:
+                    continue
+                else:
+                    error_text = await resp.text()
+                    logger.error(f"Ошибка {resp.status} от {url}: {error_text}")
+                    raise Exception(f"HTTP {resp.status}: {error_text}")
+        raise Exception("Не удалось найти рабочий путь к API (проверены /panel/api/, /xui/API/, /api/)")
 
     async def create_client(self, email: str, expire_timestamp: int, total_gb: int = 0, limit_ip: int = 1):
         import uuid
