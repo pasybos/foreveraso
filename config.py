@@ -11,18 +11,21 @@ PAYMENT_CONTACT = "@pasybos"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMAGE_PATH = os.path.join(BASE_DIR, "logo.jpg")
 
-# Настройки панели 3x-ui
-PANEL_URL = "http://89.125.33.130:8443/Cjgo9OTNe2qsekfCkR"
-PANEL_USERNAME = "P4Zo2Vjuot"
-PANEL_PASSWORD = "CfELWwjjko"
-PANEL_INBOUND_ID = 1
-API_TOKEN = "AMJ82957HqiknsccpSO7sOI9MVWMEoTRuTwBRGIO1ujnbDNV"
-API_BASE_PATH = "/panel/api/"
-
-# Веб-сервер для файлов подписки
-WEB_SERVER_HOST = "0.0.0.0"
-WEB_SERVER_PORT = 8080
-PUBLIC_URL = "http://89.125.33.130:8080"
-
 FREE_HOURS = 24
 DB_PATH = os.path.join(BASE_DIR, "users.db")
+
+# Тарифы для Telegram Stars
+TARIFFS = {
+    "week": {"days": 7, "price_stars": 25},
+    "month": {"days": 30, "price_stars": 50},
+    "halfyear": {"days": 180, "price_stars": 299},
+    "year": {"days": 365, "price_stars": 549},
+    "forever": {"days": 3650, "price_stars": 1350},
+}
+TARIFF_NAMES = {
+    "week": "Неделя",
+    "month": "Месяц",
+    "halfyear": "Полгода",
+    "year": "Год",
+    "forever": "Навсегда"
+}
