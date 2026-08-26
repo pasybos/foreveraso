@@ -1,10 +1,11 @@
 import sqlite3
 import time
-from config import DB_PATH
+from config import DB_PATH, ALL_POOLS
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    # Таблица пользователей
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
             tg_id INTEGER PRIMARY KEY,
@@ -18,24 +19,7 @@ def init_db():
             ref_link TEXT UNIQUE
         )
     ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS pool_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            link TEXT UNIQUE,
-            used BOOLEAN DEFAULT 0,
-            used_by INTEGER DEFAULT NULL,
-            used_at INTEGER DEFAULT NULL
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS ref_pool_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            link TEXT UNIQUE,
-            used BOOLEAN DEFAULT 0,
-            used_by INTEGER DEFAULT NULL,
-            used_at INTEGER DEFAULT NULL
-        )
-    ''')
+    # Таблица промокодов
     c.execute('''
         CREATE TABLE IF NOT EXISTS promocodes (
             code TEXT PRIMARY KEY,
@@ -45,6 +29,7 @@ def init_db():
             used_at INTEGER DEFAULT NULL
         )
     ''')
+    # Таблица настроек
     c.execute('''
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -53,9 +38,22 @@ def init_db():
     ''')
     c.execute('INSERT OR IGNORE INTO settings (key, value) VALUES ("ref_required", "5")')
     c.execute('INSERT OR IGNORE INTO settings (key, value) VALUES ("ref_bonus_days", "14")')
+
+    # 7 таблиц для пулов
+    for pool in ALL_POOLS:
+        c.execute(f'''
+            CREATE TABLE IF NOT EXISTS pool_{pool} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                link TEXT UNIQUE,
+                used BOOLEAN DEFAULT 0,
+                used_by INTEGER DEFAULT NULL,
+                used_at INTEGER DEFAULT NULL
+            )
+        ''')
     conn.commit()
     conn.close()
 
+# ---- пользователи ----
 def get_user(tg_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -105,89 +103,48 @@ def set_setting(key, value):
     conn.commit()
     conn.close()
 
-# -- pool_links --
-def add_pool_link(link):
+# ---- пулы (обобщённые) ----
+def add_link_to_pool(pool, link):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     try:
-        c.execute('INSERT INTO pool_links (link) VALUES (?)', (link,))
+        c.execute(f'INSERT INTO pool_{pool} (link) VALUES (?)', (link,))
         conn.commit()
     except sqlite3.IntegrityError:
         pass
     conn.close()
 
-def get_free_link():
+def get_free_link_from_pool(pool):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('SELECT id, link FROM pool_links WHERE used=0 LIMIT 1')
+    c.execute(f'SELECT id, link FROM pool_{pool} WHERE used=0 LIMIT 1')
     row = c.fetchone()
     conn.close()
     return row
 
-def mark_link_used(link_id, tg_id):
+def mark_link_used_in_pool(pool, link_id, tg_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('UPDATE pool_links SET used=1, used_by=?, used_at=? WHERE id=?', (tg_id, int(time.time()), link_id))
+    c.execute(f'UPDATE pool_{pool} SET used=1, used_by=?, used_at=? WHERE id=?', (tg_id, int(time.time()), link_id))
     conn.commit()
     conn.close()
 
-def get_all_pool_links():
+def get_all_links_from_pool(pool):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('SELECT id, link, used, used_by FROM pool_links ORDER BY id DESC')
+    c.execute(f'SELECT id, link, used, used_by FROM pool_{pool} ORDER BY id DESC')
     rows = c.fetchall()
     conn.close()
     return rows
 
-def delete_pool_link(link_id):
+def delete_link_from_pool(pool, link_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('DELETE FROM pool_links WHERE id=?', (link_id,))
+    c.execute(f'DELETE FROM pool_{pool} WHERE id=?', (link_id,))
     conn.commit()
     conn.close()
 
-# -- ref_pool_links --
-def add_ref_pool_link(link):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    try:
-        c.execute('INSERT INTO ref_pool_links (link) VALUES (?)', (link,))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        pass
-    conn.close()
-
-def get_free_ref_link():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT id, link FROM ref_pool_links WHERE used=0 LIMIT 1')
-    row = c.fetchone()
-    conn.close()
-    return row
-
-def mark_ref_link_used(link_id, tg_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('UPDATE ref_pool_links SET used=1, used_by=?, used_at=? WHERE id=?', (tg_id, int(time.time()), link_id))
-    conn.commit()
-    conn.close()
-
-def get_all_ref_pool_links():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT id, link, used, used_by FROM ref_pool_links ORDER BY id DESC')
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
-def delete_ref_pool_link(link_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('DELETE FROM ref_pool_links WHERE id=?', (link_id,))
-    conn.commit()
-    conn.close()
-
-# -- promocodes --
+# ---- промокоды ----
 def add_promocode(code, days):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
