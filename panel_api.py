@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import logging
+import re
 from config import PANEL_URL, PANEL_USERNAME, PANEL_PASSWORD, PANEL_INBOUND_ID
 
 logging.basicConfig(level=logging.INFO)
@@ -22,12 +23,27 @@ class PanelAPI:
     async def _login(self):
         session = await self._get_session()
         login_url = f"{self.base_url}/login"
-        data = {
-            "username": PANEL_USERNAME,
-            "password": PANEL_PASSWORD
-        }
+        # 1. Получаем страницу логина
+        async with session.get(login_url) as resp:
+            if resp.status != 200:
+                raise Exception(f"Не удалось получить страницу логина (статус {resp.status})")
+            html = await resp.text()
+            # Ищем CSRF-токен
+            csrf_token = None
+            match = re.search(r'name="csrf_token"\s+value="([^"]+)"', html)
+            if match:
+                csrf_token = match.group(1)
+            else:
+                match = re.search(r'<meta name="csrf-token"\s+content="([^"]+)"', html)
+                if match:
+                    csrf_token = match.group(1)
+            if not csrf_token:
+                logger.warning("CSRF-токен не найден, пробуем без него")
+        # 2. Отправляем логин
+        data = {"username": PANEL_USERNAME, "password": PANEL_PASSWORD}
+        if csrf_token:
+            data["csrf_token"] = csrf_token
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        logger.info(f"Попытка входа в панель: {login_url}")
         async with session.post(login_url, data=data, headers=headers) as resp:
             if resp.status == 200:
                 self.cookies = session.cookie_jar
@@ -46,11 +62,11 @@ class PanelAPI:
     async def _request(self, method, endpoint, data=None):
         await self._ensure_login()
         session = await self._get_session()
-        # Перебираем возможные пути
-        possible_paths = ["/panel/api/", "/xui/API/", "/api/"]
+        # Пробуем разные пути к API
+        possible_paths = ["/panel/api/", "/api/", "/xui/API/"]
         for path in possible_paths:
             url = f"{self.base_url}{path}{endpoint.lstrip('/')}"
-            logger.info(f"Запрос: {method} {url}")
+            logger.info(f"Попытка запроса: {method} {url}")
             async with session.request(method, url, json=data, headers={"Content-Type": "application/json"}, cookies=self.cookies) as resp:
                 if resp.status == 200:
                     logger.info(f"Успешный ответ от {url}")
@@ -61,7 +77,7 @@ class PanelAPI:
                     error_text = await resp.text()
                     logger.error(f"Ошибка {resp.status} от {url}: {error_text}")
                     raise Exception(f"HTTP {resp.status}: {error_text}")
-        raise Exception("Не удалось найти рабочий путь к API (проверены /panel/api/, /xui/API/, /api/)")
+        raise Exception("Не удалось найти рабочий путь к API (проверены /panel/api/, /api/, /xui/API/)")
 
     async def create_client(self, email: str, expire_timestamp: int, total_gb: int = 0, limit_ip: int = 1):
         import uuid
