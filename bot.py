@@ -14,7 +14,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
 import aiohttp
 
-from config import BOT_TOKEN, ADMIN_IDS, FREE_HOURS, PAID_DAYS, PAID_PRICE, VPN_NAME, DB_PATH, CHANNEL_ID, PAYMENT_CONTACT, IMAGE_PATH, PUBLIC_URL, WEB_SERVER_HOST, WEB_SERVER_PORT
+from config import BOT_TOKEN, ADMIN_IDS, FREE_HOURS, PAID_DAYS, PAID_PRICE, VPN_NAME, DB_PATH, CHANNEL_ID, PAYMENT_CONTACT, IMAGE_PATH, PUBLIC_URL, WEB_SERVER_HOST, WEB_SERVER_PORT, BOT_USERNAME
 from database import init_db, get_user, add_or_update_user, delete_user, get_all_active_users, add_promocode, get_promocode, use_promocode, get_all_promocodes, get_free_link, mark_link_used, get_all_pool_links, add_pool_link, delete_pool_link, get_free_ref_link, mark_ref_link_used, get_all_ref_pool_links, add_ref_pool_link, delete_ref_pool_link, get_setting, set_setting
 from panel_api import PanelAPI
 from utils import format_time_left, format_datetime
@@ -101,7 +101,7 @@ async def start_cmd(message: types.Message):
     if len(args) > 1:
         ref_data = args[1]
         if ref_data.startswith("ref_"):
-            referrer_id_str = ref_data[4:]  # убираем "ref_"
+            referrer_id_str = ref_data[4:]
             if referrer_id_str.isdigit():
                 referrer_id = int(referrer_id_str)
                 if referrer_id != message.from_user.id:
@@ -149,20 +149,15 @@ async def admin_cmd(message: types.Message):
 # ---------------------------------- РЕФЕРАЛЬНАЯ СИСТЕМА ----------------------------------
 async def handle_referral(new_user_id: int, referrer_id: int):
     """Обрабатывает переход по реферальной ссылке."""
-    # Проверяем, существует ли новый пользователь
     new_user = get_user(new_user_id)
     if new_user:
-        # Если уже есть запись, не добавляем реферала
         return
 
-    # Проверяем, не является ли реферер самим собой (уже проверено выше)
-    # Добавляем нового пользователя с referrer_id
     add_or_update_user(new_user_id, None, 0, referrer_id=referrer_id)
 
-    # Увеличиваем счётчик рефералов у реферера
     referrer = get_user(referrer_id)
     if referrer:
-        new_ref_count = referrer[4] + 1  # ref_count
+        new_ref_count = referrer[4] + 1
         add_or_update_user(referrer_id, referrer[0], referrer[1],
                            last_free=referrer[3], used_free=referrer[4],
                            ref_count=new_ref_count,
@@ -171,30 +166,22 @@ async def handle_referral(new_user_id: int, referrer_id: int):
                            current_link=referrer[7],
                            ref_link=referrer[8])
 
-        # Проверяем, достиг ли лимита
         required = int(get_setting("ref_required") or 5)
         if new_ref_count >= required:
-            # Выдаём бонус
             await give_ref_bonus(referrer_id)
 
 async def give_ref_bonus(tg_id: int):
-    """Выдаёт бонусную подписку за рефералов."""
-    # Берём ссылку из реферального пула
     link_data = get_free_ref_link()
     if not link_data:
-        # Если нет ссылок, отправляем уведомление администратору
         for admin_id in ADMIN_IDS:
             await bot.send_message(admin_id, f"⚠️ Закончились реферальные ссылки! Пользователь {tg_id} не получил бонус.")
         return
     link_id, link = link_data
     mark_ref_link_used(link_id, tg_id)
 
-    # Определяем количество дней бонуса
     bonus_days = int(get_setting("ref_bonus_days") or 14)
     expire_ts = int(time.time()) + bonus_days * 86400
 
-    # Сохраняем подписку пользователю (без создания клиента через API, так как ссылка уже готова)
-    # Если у пользователя уже есть подписка – продлеваем
     user = get_user(tg_id)
     if user and user[1] and user[1] > int(time.time()):
         new_expire = user[1] + bonus_days * 86400
@@ -223,14 +210,12 @@ async def referral_cmd(message: types.Message):
     tg_id = message.from_user.id
     user = get_user(tg_id)
     if not user:
-        # Если пользователь не зарегистрирован, создаём запись
         add_or_update_user(tg_id, None, 0)
         user = get_user(tg_id)
     ref_count = user[4] if user else 0
     required = int(get_setting("ref_required") or 5)
     bonus_days = int(get_setting("ref_bonus_days") or 14)
 
-    # Генерируем уникальный код для реферальной ссылки, если его нет
     ref_link = user[8] if user else None
     if not ref_link:
         ref_link = f"ref_{tg_id}"
@@ -243,7 +228,7 @@ async def referral_cmd(message: types.Message):
                            current_link=user[7] if user else None,
                            ref_link=ref_link)
 
-    ref_url = f"https://t.me/{bot.username}?start={ref_link}"
+    ref_url = f"https://t.me/{BOT_USERNAME}?start={ref_link}"
     await message.answer(
         f"👥 *Реферальная программа*\n\n"
         f"Приводите друзей и получайте бонусы!\n"
@@ -438,9 +423,9 @@ async def back_to_admin(message: types.Message):
         return
     await message.answer("Возврат в админ-панель.", reply_markup=admin_keyboard)
 
-# ---------------------------------- остальные обработчики (профиль, промокод, подписка и т.д.) ----------------------------------
-# ... (они остаются без изменений, их я не дублирую, чтобы не раздувать сообщение, но они должны быть в файле)
-# Для полноты я приведу их ниже кратко, но они у вас уже есть.
+# ---------------------------------- остальные обработчики (без изменений) ----------------------------------
+# ... (они уже есть в предыдущем коде и здесь не дублируются, но в полном файле они должны быть)
+# Я приведу сокращённую версию для экономии места, но в итоговом файле они все есть.
 
 # ---------------------------------- ВЫДАЧА ПОДПИСКИ (из пула) ----------------------------------
 async def assign_link_to_user(tg_id: int, tariff: str, expire_ts: int) -> str:
@@ -496,10 +481,7 @@ async def get_free(callback: types.CallbackQuery):
         expire_ts = now + FREE_HOURS * 3600
         email = f"user_{tg_id}_{int(time.time())}"
         client_id = await panel.create_client(email, expire_ts, total_gb=0, limit_ip=1)
-        # Получаем ссылку из панели (vless://)
         link = await panel.get_client_link(client_id)
-        # Сохраняем ссылку в пул как использованную, чтобы не выдавать повторно
-        # Но мы её выдаём, поэтому добавляем в pool_links с пометкой used
         add_or_update_user(tg_id, "free", expire_ts, last_free=now, used_free=1, panel_client_id=client_id, current_link=link)
         await callback.message.edit_text(
             f"✅ *Бесплатная подписка активирована!*\n\n"
@@ -929,7 +911,7 @@ async def admin_broadcast_cancel(callback: types.CallbackQuery, state: FSMContex
     await callback.message.edit_text("❌ Рассылка отменена.")
     await state.clear()
 
-# ---------------------------------- ВЕБ-СЕРВЕР (раздача файлов подписки) ----------------------------------
+# ---------------------------------- ВЕБ-СЕРВЕР ----------------------------------
 async def handle_user_subscription(request):
     path = request.match_info.get('path', '')
     parts = path.split('/')
