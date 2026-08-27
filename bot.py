@@ -2,6 +2,9 @@ import asyncio
 import time
 import os
 import logging
+import random
+import string
+import sqlite3
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, FSInputFile, LabeledPrice, PreCheckoutQuery
@@ -316,7 +319,7 @@ async def get_free(callback: types.CallbackQuery):
         reply_markup=back_button
     )
 
-# ------------------------- ПРАЙС И ОПЛАТА -------------------------
+# ------------------------- ПРАЙС И ОПЛАТА (исправлено) -------------------------
 @dp.callback_query(F.data == "buy_menu")
 async def buy_menu(callback: types.CallbackQuery):
     text = "💎 *Наши тарифы:*\n\n"
@@ -332,7 +335,14 @@ async def buy_menu(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="💳 Оплатить рублями (через администратора)", callback_data="buy_manual")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_main")]
     ])
-    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+    if callback.message.text:
+        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+    else:
+        await callback.message.answer(text, parse_mode="Markdown", reply_markup=kb)
+        try:
+            await callback.message.delete()
+        except:
+            pass
     await callback.answer()
 
 @dp.callback_query(F.data == "buy_stars_menu")
@@ -349,7 +359,15 @@ async def buy_stars_menu(callback: types.CallbackQuery):
             )
         ])
     kb.inline_keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="buy_menu")])
-    await callback.message.edit_text("⭐ *Выберите тариф для оплаты звёздами:*", parse_mode="Markdown", reply_markup=kb)
+    text = "⭐ *Выберите тариф для оплаты звёздами:*"
+    if callback.message.text:
+        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+    else:
+        await callback.message.answer(text, parse_mode="Markdown", reply_markup=kb)
+        try:
+            await callback.message.delete()
+        except:
+            pass
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("stars_"))
@@ -431,9 +449,17 @@ async def buy_manual(callback: types.CallbackQuery):
     text += "\nДля покупки свяжитесь с администратором:\n"
     text += f"📩 **@{PAYMENT_CONTACT}**\n\n"
     text += "После оплаты администратор активирует подписку вручную."
-    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+    kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Назад", callback_data="buy_menu")]
-    ]))
+    ])
+    if callback.message.text:
+        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+    else:
+        await callback.message.answer(text, parse_mode="Markdown", reply_markup=kb)
+        try:
+            await callback.message.delete()
+        except:
+            pass
     await callback.answer()
 
 # ------------------------- АДМИН: АКТИВАЦИЯ ПОДПИСКИ (ручная выдача) -------------------------
@@ -654,7 +680,6 @@ async def give_sub_command(message: types.Message):
     )
 
 # ------------------------- АДМИН: УПРАВЛЕНИЕ ПУЛАМИ (обобщённое) -------------------------
-# При нажатии на кнопку "📦 Пул: ..." устанавливаем текущий пул и показываем меню управления
 @dp.message(F.text.startswith("📦 Пул:"))
 async def manage_pool_menu(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -688,7 +713,6 @@ async def manage_pool_menu(message: types.Message, state: FSMContext):
         reply_markup=kb
     )
 
-# Обработчик добавления ссылок (для текущего пула)
 @dp.message(AdminStates.managing_pool, F.text == "➕ Добавить ссылки")
 async def add_links_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -769,7 +793,6 @@ async def add_links_process(message: types.Message, state: FSMContext):
         reply_markup=admin_keyboard
     )
 
-# Список ссылок текущего пула
 @dp.message(AdminStates.managing_pool, F.text == "📋 Список ссылок")
 async def list_links_pool(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -790,7 +813,6 @@ async def list_links_pool(message: types.Message, state: FSMContext):
         text += f"ID `{link_id}`: `{link[:50]}...` — {status}{used_info}\n"
     await message.answer(text, parse_mode="Markdown", reply_markup=admin_keyboard)
 
-# Удаление ссылки из текущего пула
 @dp.message(AdminStates.managing_pool, F.text == "🗑️ Удалить ссылку")
 async def delete_link_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -820,6 +842,13 @@ async def delete_link_process(message: types.Message, state: FSMContext):
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}", reply_markup=admin_keyboard)
     await state.set_state(AdminStates.managing_pool)
+
+@dp.message(AdminStates.managing_pool, F.text == "🔙 Назад в админку")
+async def back_to_admin_from_pool(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await state.clear()
+    await message.answer("Возврат в админ-панель.", reply_markup=admin_keyboard)
 
 # ------------------------- АДМИН: РЕФЕРАЛЬНЫЕ НАСТРОЙКИ -------------------------
 @dp.message(F.text == "⚙️ Реферальные настройки")
@@ -895,8 +924,6 @@ async def create_promo_process(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer("❌ Введите число.")
         return
-    # Генерация кода
-    import random, string
     code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
     add_promocode(code, days)
     await state.clear()
@@ -990,8 +1017,6 @@ async def stats(message: types.Message):
         return
     users = get_all_active_users()
     active = len(users)
-    total = len(get_all_promocodes())  # не совсем, но для примера
-    # Получаем количество всех пользователей
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('SELECT COUNT(*) FROM users')
@@ -1040,7 +1065,7 @@ async def exit_admin(message: types.Message):
         return
     await message.answer("👋 Вы вышли из админ-панели.", reply_markup=bottom_menu)
 
-# ------------------------- НИЖНЕЕ МЕНЮ (профиль, промокод, канал и т.д.) -------------------------
+# ------------------------- НИЖНЕЕ МЕНЮ -------------------------
 @dp.message(F.text == "👤 Профиль")
 async def profile(message: types.Message):
     tg_id = message.from_user.id
@@ -1083,7 +1108,6 @@ async def promo_activate(message: types.Message, state: FSMContext):
         return
     tg_id = message.from_user.id
     use_promocode(code, tg_id)
-    # Выдаём подписку на days дней (используем пул, подходящий по дням)
     pool = get_pool_for_days(days)
     link_data = get_free_link_from_pool(pool)
     if not link_data:
@@ -1131,9 +1155,50 @@ async def policy(message: types.Message):
         parse_mode="Markdown"
     )
 
+@dp.callback_query(F.data == "instructions")
+async def instructions(callback: types.CallbackQuery):
+    text = (
+        "📖 *Инструкция по использованию:*\n\n"
+        "1. Нажмите «Получить подписку», чтобы активировать бесплатный доступ на 24 часа.\n"
+        "2. Используйте кнопку «Прайс и оплата» для покупки платных тарифов.\n"
+        "3. После оплаты вы получите ссылку для подключения.\n"
+        "4. Скопируйте ссылку и вставьте в приложение V2RayTun, Happ или другой клиент.\n"
+        "5. Если возникли вопросы — обратитесь в поддержку: @{PAYMENT_CONTACT}\n\n"
+        "🔒 Ваши данные в безопасности, мы не храним логи.",
+        parse_mode="Markdown"
+    )
+    await callback.message.answer(text, reply_markup=back_button)
+    await callback.answer()
+
+@dp.callback_query(F.data == "trial")
+async def trial(callback: types.CallbackQuery):
+    await callback.message.answer(
+        "🎁 *Пробный период*\n\n"
+        "Вы можете получить бесплатную подписку на 24 часа, нажав «Получить подписку» в главном меню.\n"
+        "Пробный период доступен только один раз.",
+        parse_mode="Markdown",
+        reply_markup=back_button
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "back_main")
+async def back_main(callback: types.CallbackQuery):
+    await callback.message.delete()
+    await start_cmd(callback.message)
+    await callback.answer()
+
+@dp.callback_query(F.data == "check_sub")
+async def check_sub_callback(callback: types.CallbackQuery):
+    tg_id = callback.from_user.id
+    if await check_subscription(tg_id):
+        await callback.message.edit_text("✅ Вы подписаны на канал! Теперь можете получить бесплатную подписку через главное меню.", reply_markup=back_button)
+    else:
+        await callback.answer("❌ Вы ещё не подписались на канал.", show_alert=True)
+
 # ------------------------- ЗАПУСК -------------------------
 async def main():
     init_db()
+    logger.info("Бот запущен")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
