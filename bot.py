@@ -7,19 +7,28 @@ import string
 import sqlite3
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, FSInputFile, LabeledPrice, PreCheckoutQuery
+from aiogram.types import (
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardMarkup, KeyboardButton,
+    FSInputFile, LabeledPrice, PreCheckoutQuery
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.exceptions import TelegramBadRequest
 
-from config import (BOT_TOKEN, ADMIN_IDS, FREE_HOURS, VPN_NAME, DB_PATH,
-                    CHANNEL_ID, PAYMENT_CONTACT, IMAGE_PATH, BOT_USERNAME,
-                    TARIFFS, ALL_POOLS, POOL_LABELS)
-from database import init_db, get_user, add_or_update_user, delete_user, get_all_active_users
-from database import add_promocode, get_promocode, use_promocode, get_all_promocodes
-from database import add_link_to_pool, get_free_link_from_pool, mark_link_used_in_pool
-from database import get_all_links_from_pool, delete_link_from_pool
-from database import get_setting, set_setting
+from config import (
+    BOT_TOKEN, ADMIN_IDS, FREE_HOURS, VPN_NAME, DB_PATH,
+    CHANNEL_ID, PAYMENT_CONTACT, IMAGE_PATH, BOT_USERNAME,
+    TARIFFS, ALL_POOLS, POOL_LABELS
+)
+from database import (
+    init_db, get_user, add_or_update_user, delete_user, get_all_active_users,
+    add_promocode, get_promocode, use_promocode, get_all_promocodes,
+    add_link_to_pool, get_free_link_from_pool, mark_link_used_in_pool,
+    get_all_links_from_pool, delete_link_from_pool,
+    get_setting, set_setting
+)
 from utils import format_time_left, format_datetime
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -29,7 +38,7 @@ bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# ------------------------- состояния -------------------------
+# ------------------------- STATES -------------------------
 class AdminStates(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_tariff = State()
@@ -45,8 +54,7 @@ class AdminStates(StatesGroup):
 class UserStates(StatesGroup):
     waiting_for_promo_code = State()
 
-# ------------------------- клавиатуры -------------------------
-
+# ------------------------- KEYBOARDS -------------------------
 main_menu = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="📖 Инструкция", callback_data="instructions")],
     [InlineKeyboardButton(text="🚀 Получить подписку", callback_data="get_free")],
@@ -95,7 +103,7 @@ subscribe_keyboard = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="🔄 Проверить подписку", callback_data="check_sub")]
 ])
 
-# ------------------------- проверка подписки -------------------------
+# ------------------------- HELPERS -------------------------
 async def check_subscription(user_id: int) -> bool:
     try:
         member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
@@ -103,7 +111,6 @@ async def check_subscription(user_id: int) -> bool:
     except Exception:
         return False
 
-# ------------------------- вспомогательная: подбор пула по дням -------------------------
 def get_pool_for_days(days: int) -> str:
     sorted_tariffs = sorted(TARIFFS.items(), key=lambda x: x[1]['days'])
     for key, tariff in sorted_tariffs:
@@ -122,7 +129,7 @@ async def start_cmd(message: types.Message):
             if referrer_id_str.isdigit():
                 referrer_id = int(referrer_id_str)
                 if referrer_id != message.from_user.id:
-                    logger.info(f"Переход по реферальной ссылке от {referrer_id} для {message.from_user.id}")
+                    logger.info(f"Реферальный переход от {referrer_id} к {message.from_user.id}")
                     await handle_referral(message.from_user.id, referrer_id)
 
     welcome_text = (
@@ -144,7 +151,7 @@ async def start_cmd(message: types.Message):
                 reply_markup=main_menu
             )
         except Exception as e:
-            logger.error(f"Ошибка при отправке фото: {e}")
+            logger.error(f"Ошибка отправки фото: {e}")
             await message.answer(welcome_text, parse_mode="Markdown", reply_markup=main_menu)
     else:
         logger.warning(f"Файл {IMAGE_PATH} не найден.")
@@ -165,7 +172,7 @@ async def admin_cmd(message: types.Message):
         reply_markup=admin_keyboard
     )
 
-# ------------------------- реферальная система -------------------------
+# ------------------------- РЕФЕРАЛЬНАЯ СИСТЕМА -------------------------
 async def handle_referral(new_user_id: int, referrer_id: int):
     logger.info(f"Обработка реферала: новый {new_user_id}, реферер {referrer_id}")
     new_user = get_user(new_user_id)
@@ -179,17 +186,21 @@ async def handle_referral(new_user_id: int, referrer_id: int):
     referrer = get_user(referrer_id)
     if referrer:
         new_ref_count = referrer[4] + 1
-        add_or_update_user(referrer_id, referrer[0], referrer[1],
-                           last_free=referrer[3], used_free=referrer[4],
-                           ref_count=new_ref_count,
-                           referrer_id=referrer[5],
-                           current_link=referrer[6],
-                           ref_link=referrer[7])
+        add_or_update_user(
+            referrer_id,
+            referrer[0], referrer[1],
+            last_free=referrer[3],
+            used_free=referrer[4],
+            ref_count=new_ref_count,
+            referrer_id=referrer[5],
+            current_link=referrer[6],
+            ref_link=referrer[7]
+        )
         logger.info(f"У реферера {referrer_id} теперь {new_ref_count} рефералов")
 
         required = int(get_setting("ref_required") or 5)
         if new_ref_count >= required:
-            logger.info(f"Реферер {referrer_id} достиг лимита {required}, выдаём бонус")
+            logger.info(f"Реферер {referrer_id} достиг лимита, выдаём бонус")
             await give_ref_bonus(referrer_id)
         else:
             logger.info(f"Реферер {referrer_id} ещё не достиг лимита {required} (сейчас {new_ref_count})")
@@ -233,20 +244,22 @@ async def referral_cmd(message: types.Message):
     ref_link = user[7] if user else None
     if not ref_link:
         ref_link = f"ref_{tg_id}"
-        add_or_update_user(tg_id, user[0], user[1],
-                           last_free=user[3] if user else 0,
-                           used_free=user[4] if user else 0,
-                           ref_count=ref_count,
-                           referrer_id=user[5] if user else None,
-                           current_link=user[6] if user else None,
-                           ref_link=ref_link)
+        add_or_update_user(
+            tg_id,
+            user[0], user[1],
+            last_free=user[3] if user else 0,
+            used_free=user[4] if user else 0,
+            ref_count=ref_count,
+            referrer_id=user[5] if user else None,
+            current_link=user[6] if user else None,
+            ref_link=ref_link
+        )
 
-    bot_username = BOT_USERNAME
-    if not bot_username:
+    if not BOT_USERNAME:
         await message.answer("❌ Ошибка: BOT_USERNAME не задан в config.py.")
         return
 
-    ref_url = f"https://t.me/{bot_username}?start={ref_link}"
+    ref_url = f"https://t.me/{BOT_USERNAME}?start={ref_link}"
     await message.answer(
         f"👥 *Реферальная программа*\n\n"
         f"Приводите друзей и получайте бонусы!\n"
@@ -258,7 +271,7 @@ async def referral_cmd(message: types.Message):
         parse_mode="Markdown"
     )
 
-# ------------------------- бесплатная подписка (пул free) -------------------------
+# ------------------------- БЕСПЛАТНАЯ ПОДПИСКА -------------------------
 @dp.callback_query(F.data == "get_free")
 async def get_free(callback: types.CallbackQuery):
     tg_id = callback.from_user.id
@@ -319,7 +332,7 @@ async def get_free(callback: types.CallbackQuery):
         reply_markup=back_button
     )
 
-# ------------------------- ПРАЙС И ОПЛАТА (исправлено) -------------------------
+# ------------------------- ПРАЙС И ОПЛАТА -------------------------
 @dp.callback_query(F.data == "buy_menu")
 async def buy_menu(callback: types.CallbackQuery):
     text = "💎 *Наши тарифы:*\n\n"
@@ -335,6 +348,7 @@ async def buy_menu(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="💳 Оплатить рублями (через администратора)", callback_data="buy_manual")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_main")]
     ])
+
     if callback.message.text:
         await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
     else:
@@ -360,6 +374,30 @@ async def buy_stars_menu(callback: types.CallbackQuery):
         ])
     kb.inline_keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="buy_menu")])
     text = "⭐ *Выберите тариф для оплаты звёздами:*"
+    if callback.message.text:
+        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+    else:
+        await callback.message.answer(text, parse_mode="Markdown", reply_markup=kb)
+        try:
+            await callback.message.delete()
+        except:
+            pass
+    await callback.answer()
+
+@dp.callback_query(F.data == "buy_manual")
+async def buy_manual(callback: types.CallbackQuery):
+    text = "💳 *Оплата рублями через администратора*\n\n"
+    text += "Наши тарифы:\n"
+    for key, tariff in TARIFFS.items():
+        if key in ("free", "ref"):
+            continue
+        text += f"▸ *{tariff['label']}* — {tariff['days']} дн., {tariff['price_rub']}\n"
+    text += "\nДля покупки свяжитесь с администратором:\n"
+    text += f"📩 **@{PAYMENT_CONTACT}**\n\n"
+    text += "После оплаты администратор активирует подписку вручную."
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="buy_menu")]
+    ])
     if callback.message.text:
         await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
     else:
@@ -438,31 +476,7 @@ async def successful_payment(message: types.Message):
         parse_mode="Markdown"
     )
 
-@dp.callback_query(F.data == "buy_manual")
-async def buy_manual(callback: types.CallbackQuery):
-    text = "💳 *Оплата рублями через администратора*\n\n"
-    text += "Наши тарифы:\n"
-    for key, tariff in TARIFFS.items():
-        if key in ("free", "ref"):
-            continue
-        text += f"▸ *{tariff['label']}* — {tariff['days']} дн., {tariff['price_rub']}\n"
-    text += "\nДля покупки свяжитесь с администратором:\n"
-    text += f"📩 **@{PAYMENT_CONTACT}**\n\n"
-    text += "После оплаты администратор активирует подписку вручную."
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="buy_menu")]
-    ])
-    if callback.message.text:
-        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
-    else:
-        await callback.message.answer(text, parse_mode="Markdown", reply_markup=kb)
-        try:
-            await callback.message.delete()
-        except:
-            pass
-    await callback.answer()
-
-# ------------------------- АДМИН: АКТИВАЦИЯ ПОДПИСКИ (ручная выдача) -------------------------
+# ------------------------- АДМИН: АКТИВАЦИЯ ПОДПИСКИ (ручная) -------------------------
 @dp.message(F.text == "✅ Активировать подписку")
 async def activate_sub_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -502,7 +516,7 @@ async def activate_sub_get_user(message: types.Message, state: FSMContext):
 async def activate_sub_choose_tariff(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
-    if message.text == "🔙 Отмена" or message.text == "/cancel":
+    if message.text in ("🔙 Отмена", "/cancel"):
         await state.clear()
         await message.answer("❌ Отменено.", reply_markup=admin_keyboard)
         return
@@ -564,7 +578,7 @@ async def activate_sub_choose_tariff(message: types.Message, state: FSMContext):
     )
     await state.clear()
 
-# ------------------------- АДМИН: АКТИВАЦИЯ РЕФЕРАЛЬНОЙ ПОДПИСКИ (ручная) -------------------------
+# ------------------------- АДМИН: АКТИВАЦИЯ РЕФЕРАЛЬНОЙ ПОДПИСКИ -------------------------
 @dp.message(F.text == "✅ Активировать реферальную подписку")
 async def activate_ref_sub_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -618,7 +632,7 @@ async def activate_ref_sub_process(message: types.Message, state: FSMContext):
     )
     await state.clear()
 
-# ------------------------- /give_sub (командная выдача) -------------------------
+# ------------------------- /give_sub -------------------------
 @dp.message(Command("give_sub"))
 async def give_sub_command(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
@@ -626,10 +640,12 @@ async def give_sub_command(message: types.Message):
         return
     args = message.text.split()
     if len(args) < 3:
-        await message.answer("❌ Использование:\n"
-                             "`/give_sub <ID> <дни>`\n"
-                             "`/give_sub <ID> <тариф>` (week, month, halfyear, year, forever)",
-                             parse_mode="Markdown")
+        await message.answer(
+            "❌ Использование:\n"
+            "`/give_sub <ID> <дни>`\n"
+            "`/give_sub <ID> <тариф>` (week, month, halfyear, year, forever)",
+            parse_mode="Markdown"
+        )
         return
     try:
         tg_id = int(args[1])
@@ -679,7 +695,7 @@ async def give_sub_command(message: types.Message):
         reply_markup=admin_keyboard
     )
 
-# ------------------------- АДМИН: УПРАВЛЕНИЕ ПУЛАМИ (обобщённое) -------------------------
+# ------------------------- УПРАВЛЕНИЕ ПУЛАМИ -------------------------
 @dp.message(F.text.startswith("📦 Пул:"))
 async def manage_pool_menu(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -843,14 +859,7 @@ async def delete_link_process(message: types.Message, state: FSMContext):
         await message.answer(f"❌ Ошибка: {e}", reply_markup=admin_keyboard)
     await state.set_state(AdminStates.managing_pool)
 
-@dp.message(AdminStates.managing_pool, F.text == "🔙 Назад в админку")
-async def back_to_admin_from_pool(message: types.Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    await state.clear()
-    await message.answer("Возврат в админ-панель.", reply_markup=admin_keyboard)
-
-# ------------------------- АДМИН: РЕФЕРАЛЬНЫЕ НАСТРОЙКИ -------------------------
+# ------------------------- РЕФЕРАЛЬНЫЕ НАСТРОЙКИ -------------------------
 @dp.message(F.text == "⚙️ Реферальные настройки")
 async def ref_settings_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -900,7 +909,7 @@ async def ref_settings_process(message: types.Message, state: FSMContext):
         reply_markup=admin_keyboard
     )
 
-# ------------------------- АДМИН: ПРОМОКОДЫ -------------------------
+# ------------------------- ПРОМОКОДЫ -------------------------
 @dp.message(F.text == "🎫 Создать промокод")
 async def create_promo_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -949,7 +958,7 @@ async def list_promocodes(message: types.Message):
         text += f"`{code}` — {days} дн., {status}{used_info}\n"
     await message.answer(text, parse_mode="Markdown", reply_markup=admin_keyboard)
 
-# ------------------------- АДМИН: РАССЫЛКА -------------------------
+# ------------------------- РАССЫЛКА -------------------------
 @dp.message(F.text == "📨 Сделать рассылку")
 async def broadcast_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -1010,7 +1019,7 @@ async def broadcast_cancel(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.answer()
 
-# ------------------------- АДМИН: СТАТИСТИКА -------------------------
+# ------------------------- СТАТИСТИКА -------------------------
 @dp.message(F.text == "📊 Статистика")
 async def stats(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
@@ -1038,7 +1047,7 @@ async def stats(message: types.Message):
         reply_markup=admin_keyboard
     )
 
-# ------------------------- АДМИН: СПИСОК ПОЛЬЗОВАТЕЛЕЙ -------------------------
+# ------------------------- СПИСОК ПОЛЬЗОВАТЕЛЕЙ -------------------------
 @dp.message(F.text == "👥 Список пользователей")
 async def list_users(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
@@ -1058,7 +1067,7 @@ async def list_users(message: types.Message):
         text += f"ID: `{tg_id}` | Тариф: {tariff or '—'} | До: {expire_str} | {status}\n"
     await message.answer(text, parse_mode="Markdown", reply_markup=admin_keyboard)
 
-# ------------------------- АДМИН: ВЫХОД -------------------------
+# ------------------------- ВЫХОД ИЗ АДМИНКИ -------------------------
 @dp.message(F.text == "🔙 Выйти из админ-панели")
 async def exit_admin(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
@@ -1155,50 +1164,10 @@ async def policy(message: types.Message):
         parse_mode="Markdown"
     )
 
-@dp.callback_query(F.data == "instructions")
-async def instructions(callback: types.CallbackQuery):
-    text = (
-        "📖 *Инструкция по использованию:*\n\n"
-        "1. Нажмите «Получить подписку», чтобы активировать бесплатный доступ на 24 часа.\n"
-        "2. Используйте кнопку «Прайс и оплата» для покупки платных тарифов.\n"
-        "3. После оплаты вы получите ссылку для подключения.\n"
-        "4. Скопируйте ссылку и вставьте в приложение V2RayTun, Happ или другой клиент.\n"
-        "5. Если возникли вопросы — обратитесь в поддержку: @{PAYMENT_CONTACT}\n\n"
-        "🔒 Ваши данные в безопасности, мы не храним логи.",
-        parse_mode="Markdown"
-    )
-    await callback.message.answer(text, reply_markup=back_button)
-    await callback.answer()
-
-@dp.callback_query(F.data == "trial")
-async def trial(callback: types.CallbackQuery):
-    await callback.message.answer(
-        "🎁 *Пробный период*\n\n"
-        "Вы можете получить бесплатную подписку на 24 часа, нажав «Получить подписку» в главном меню.\n"
-        "Пробный период доступен только один раз.",
-        parse_mode="Markdown",
-        reply_markup=back_button
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "back_main")
-async def back_main(callback: types.CallbackQuery):
-    await callback.message.delete()
-    await start_cmd(callback.message)
-    await callback.answer()
-
-@dp.callback_query(F.data == "check_sub")
-async def check_sub_callback(callback: types.CallbackQuery):
-    tg_id = callback.from_user.id
-    if await check_subscription(tg_id):
-        await callback.message.edit_text("✅ Вы подписаны на канал! Теперь можете получить бесплатную подписку через главное меню.", reply_markup=back_button)
-    else:
-        await callback.answer("❌ Вы ещё не подписались на канал.", show_alert=True)
-
 # ------------------------- ЗАПУСК -------------------------
 async def main():
     init_db()
-    logger.info("Бот запущен")
+    logger.info("Бот запущен и готов к работе.")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
