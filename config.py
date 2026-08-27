@@ -2,7 +2,7 @@ import os
 
 VPN_NAME = "foreveraso VPN"
 BOT_TOKEN = "8917061204:AAGYzu2OVq5NQc8vGwNn4vDrWR94scX7Q7w"
-BOT_USERNAME = "ForeverasoVpn_bot"   # <-- добавлено!
+BOT_USERNAME = "ForeverasoVpn_bot"
 
 ADMIN_IDS = [5926969950, 8293308280]
 CHANNEL_ID = "@Foreveraso_Vpn"
@@ -14,7 +14,7 @@ IMAGE_PATH = os.path.join(BASE_DIR, "logo.jpg")
 FREE_HOURS = 24
 DB_PATH = os.path.join(BASE_DIR, "users.db")
 
-# Тарифы (price_stars – цена в звёздах Telegram)
+# Тарифы
 TARIFFS = {
     "free":    {"days": 1,    "label": "Бесплатная",  "price_rub": "0 ₽",   "price_stars": 0,   "pool": "free"},
     "ref":     {"days": 14,   "label": "Реферальная", "price_rub": "0 ₽",   "price_stars": 0,   "pool": "ref"},
@@ -37,5 +37,5 @@ POOL_LABELS = {
     "forever":  "Навсегда",
 }
 
-# Если нужен URL панели (для интеграции)
+# URL панели (если нужен для интеграции)
 PANEL_URL = "http://89.125.33.130:8443/Cjgo9OTNe2qsekfCkR"
