@@ -1067,6 +1067,63 @@ async def list_users(message: types.Message):
         text += f"ID: `{tg_id}` | Тариф: {tariff or '—'} | До: {expire_str} | {status}\n"
     await message.answer(text, parse_mode="Markdown", reply_markup=admin_keyboard)
 
+# ------------------------- КНОПКА НАЗАД -------------------------
+@dp.callback_query(F.data == "back_main")
+async def back_main(callback: types.CallbackQuery):
+    """
+    Возвращает пользователя в главное меню.
+    Если сообщение содержит текст – редактирует его.
+    Если сообщение без текста (фото) – отправляет новое и удаляет старое.
+    """
+    text = "🏠 *Главное меню*\n\nВыберите раздел:"
+    if callback.message.text:
+        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=main_menu)
+    else:
+        await callback.message.answer(text, parse_mode="Markdown", reply_markup=main_menu)
+        try:
+            await callback.message.delete()
+        except:
+            pass
+    await callback.answer()
+
+# ------------------------- ОБРАБОТЧИКИ КНОПОК ГЛАВНОГО МЕНЮ -------------------------
+@dp.callback_query(F.data == "instructions")
+async def instructions(callback: types.CallbackQuery):
+    text = (
+        "📖 *Инструкция по использованию VPN*\n\n"
+        "1. Нажмите «🚀 Получить подписку» – вы получите бесплатную ссылку на 24 часа (после подписки на канал).\n"
+        "2. Скопируйте ссылку и вставьте её в приложение V2RayTun / Happ / Nekobox.\n"
+        "3. Нажмите «💰 Прайс и оплата» – выберите тариф и оплатите звёздами или рублями.\n"
+        "4. После оплаты ссылка придёт автоматически (при оплате звёздами) или администратор выдаст её вручную.\n"
+        "5. Если что-то не работает – обратитесь в поддержку: @pasybos"
+    )
+    if callback.message.text:
+        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=back_button)
+    else:
+        await callback.message.answer(text, parse_mode="Markdown", reply_markup=back_button)
+        try:
+            await callback.message.delete()
+        except:
+            pass
+    await callback.answer()
+
+@dp.callback_query(F.data == "trial")
+async def trial(callback: types.CallbackQuery):
+    text = (
+        "🎁 *Пробный период*\n\n"
+        "Вы можете получить бесплатную подписку на 24 часа, нажав «🚀 Получить подписку».\n"
+        "Если вы уже использовали пробный период, вы можете приобрести платный тариф через «💰 Прайс и оплата»."
+    )
+    if callback.message.text:
+        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=back_button)
+    else:
+        await callback.message.answer(text, parse_mode="Markdown", reply_markup=back_button)
+        try:
+            await callback.message.delete()
+        except:
+            pass
+    await callback.answer()
+
 # ------------------------- ВЫХОД ИЗ АДМИНКИ -------------------------
 @dp.message(F.text == "🔙 Выйти из админ-панели")
 async def exit_admin(message: types.Message):
