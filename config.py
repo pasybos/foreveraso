@@ -14,7 +14,7 @@ PAID_DAYS = 30
 PAID_PRICE = "300 ₽"
 
 DB_PATH = os.path.join(BASE_DIR, "users.db")
-PANEL_URL = "http://89.125.33.130:8443/Cjgo9OTNe2qsekfCkR&quot;
+PANEL_URL = "http://89.125.33.130:8443/Cjgo9OTNe2qsekfCkR"
 PANEL_USERNAME = "P4Zo2Vjuot"
 PANEL_PASSWORD = "admin"
 PANEL_INBOUND_ID = 1
