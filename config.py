@@ -1,3 +1,4 @@
+cat > /root/vpn_bot/config.py << 'CFGEOF'
 import os
 
 VPN_NAME = "Foreveraso VPN"
@@ -22,8 +23,10 @@ PANEL_SERVER_IP = "89.125.33.130"
 SUB_PORT = 2096
 REALITY_PORT = 8444
 XHTTP_PORT = 2053
+XHTTP_HOST = "foreverasovpn.work.gd"
+XHTTP_PATH = "/api/v9/feed"
 
-# --- Reality параметры ---
+# --- Reality параметры (инбаунд 20) ---
 REALITY_SNI = "p-nt-www-amazon-com-kalias.amazon.com"
 REALITY_FINGERPRINT = "firefox"
 REALITY_SPIDER_X = "/"
@@ -40,3 +43,4 @@ TARIFFS = {
     "year":     {"days": 365,  "label": "Год",         "price_rub": "999",  "price_stars": 549},
     "forever":  {"days": 3650, "label": "Навсегда",    "price_rub": "2499", "price_stars": 1350},
 }
+CFGEOF
