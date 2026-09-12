@@ -102,7 +102,8 @@ def set_setting(key, value):
 def add_promocode(code, days):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO promocodes (code, days, created_at) VALUES (?, ?, ?)", (code, days, int(time.time())))
+    c.execute("INSERT INTO promocodes (code, days, created_at) VALUES (?, ?, ?)",
+              (code, days, int(time.time())))
     conn.commit()
     conn.close()
 
@@ -119,7 +120,8 @@ def get_promocode(code):
 def use_promocode(code, tg_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("UPDATE promocodes SET used_by=?, used_at=? WHERE code=?", (tg_id, int(time.time()), code))
+    c.execute("UPDATE promocodes SET used_by=?, used_at=? WHERE code=?",
+              (tg_id, int(time.time()), code))
     conn.commit()
     conn.close()
 
