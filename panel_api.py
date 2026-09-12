@@ -25,38 +25,40 @@ def _restart_xray():
 
 
 def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts):
-    """Пишет клиента в 3 места: clients, client_inbounds, JSON inbounds.settings"""
+    """Пишет клиента в clients, client_inbounds и JSON inbounds.settings"""
     c = conn.cursor()
     now_ms = int(time.time() * 1000)
     expiry_ms = expiry_ts * 1000
 
-    # 1. Таблица clients
-    c.execute("""
-        INSERT OR REPLACE INTO clients
-        (email, sub_id, uuid, limit_ip, total_gb, expiry_time, enable,
-         tg_id, reset, reset_day, reset_max, traffic_reset, traffic_reset_day,
-         created_at, updated_at, flow, security)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        email, sub_id, new_uuid, 1, 0, expiry_ms, 1,
-        0, 0, 0, 0, "never", 1,
-        now_ms, now_ms, "", "auto"
-    ))
-
-    # 2. Связь client_inbounds
+    # 1. UPSERT в clients (сохраняет id при повторном вызове)
     c.execute("SELECT id FROM clients WHERE email = ?", (email,))
     row = c.fetchone()
     if row:
         client_id = row[0]
-        try:
-            c.execute("""
-                INSERT OR IGNORE INTO client_inbounds (client_id, inbound_id, flow_override, created_at)
-                VALUES (?, ?, ?, ?)
-            """, (client_id, inbound_id, "", now_ms))
-        except Exception as e:
-            logger.warning("client_inbounds insert: %s" % e)
+        c.execute("""UPDATE clients SET sub_id=?, uuid=?, limit_ip=?, total_gb=?,
+                     expiry_time=?, enable=?, updated_at=? WHERE id=?""",
+                  (sub_id, new_uuid, 1, 0, expiry_ms, 1, now_ms, client_id))
+    else:
+        c.execute("""INSERT INTO clients
+                     (email, sub_id, uuid, limit_ip, total_gb, expiry_time, enable,
+                      tg_id, reset, reset_day, reset_max, traffic_reset, traffic_reset_day,
+                      created_at, updated_at, flow, security)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                  (email, sub_id, new_uuid, 1, 0, expiry_ms, 1,
+                   0, 0, 0, 0, "never", 1, now_ms, now_ms, "", "auto"))
+        c.execute("SELECT id FROM clients WHERE email = ?", (email,))
+        client_id = c.fetchone()[0]
 
-    # 3. JSON в inbounds.settings (чтобы Xray видел)
+    # 2. Связь client_inbounds
+    try:
+        c.execute("""INSERT OR IGNORE INTO client_inbounds
+                     (client_id, inbound_id, flow_override, created_at)
+                     VALUES (?, ?, ?, ?)""",
+                  (client_id, inbound_id, "", now_ms))
+    except Exception as e:
+        logger.warning("client_inbounds insert: %s" % e)
+
+    # 3. JSON в inbounds.settings (чтобы Xray видел клиента)
     c.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
     row2 = c.fetchone()
     if row2:
@@ -132,16 +134,12 @@ def delete_client(client_id):
     try:
         conn = sqlite3.connect(PANEL_DB_PATH)
         c = conn.cursor()
-        c.execute("SELECT email FROM clients WHERE uuid = ?", (client_id,))
+        c.execute("SELECT id, email FROM clients WHERE uuid = ?", (client_id,))
         row = c.fetchone()
-        email = row[0] if row else None
-
-        if email:
-            c.execute("SELECT id FROM clients WHERE email = ?", (email,))
-            row2 = c.fetchone()
-            if row2:
-                c.execute("DELETE FROM client_inbounds WHERE client_id = ?", (row2[0],))
-            c.execute("DELETE FROM clients WHERE email = ?", (email,))
+        if row:
+            db_id, email = row
+            c.execute("DELETE FROM client_inbounds WHERE client_id = ?", (db_id,))
+            c.execute("DELETE FROM clients WHERE id = ?", (db_id,))
             try:
                 c.execute("DELETE FROM client_traffics WHERE email = ?", (email,))
             except:
@@ -174,13 +172,13 @@ def extend_client(client_id, extra_days):
         c = conn.cursor()
         add_ms = extra_days * 86400 * 1000
 
-        c.execute("SELECT email, expiry_time FROM clients WHERE uuid = ?", (client_id,))
+        c.execute("SELECT id, email, expiry_time FROM clients WHERE uuid = ?", (client_id,))
         row = c.fetchone()
         if row:
-            email, cur = row
+            db_id, email, cur = row
             new_exp = (cur if cur and cur > int(time.time() * 1000) else int(time.time() * 1000)) + add_ms
-            c.execute("UPDATE clients SET expiry_time = ?, updated_at = ? WHERE email = ?",
-                      (new_exp, int(time.time() * 1000), email))
+            c.execute("UPDATE clients SET expiry_time = ?, updated_at = ? WHERE id = ?",
+                      (new_exp, int(time.time() * 1000), db_id))
 
         for inbound_id in (INBOUND_REALITY_ID, INBOUND_XHTTP_ID):
             c.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
