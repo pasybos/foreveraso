@@ -7,13 +7,9 @@ import json
 import subprocess
 from config import (
     PANEL_DB_PATH, INBOUND_REALITY_ID, INBOUND_XHTTP_ID,
-    REALITY_SNI, REALITY_FINGERPRINT, REALITY_SPIDER_X,
-    REALITY_PUBLIC_KEY, REALITY_SHORT_ID,
-    PANEL_SERVER_IP, SUB_PORT, REALITY_PORT,
-    XHTTP_HOST, XHTTP_PORT, XHTTP_PATH,
-    XHTTP_SNI, XHTTP_FINGERPRINT, XHTTP_ALPN, XHTTP_MODE,
+    PANEL_SERVER_IP, SUB_PORT,
     RELAY_IP, RELAY_PORT, RELAY_UUID, RELAY_PUBLIC_KEY,
-    RELAY_SNI, RELAY_SHORT_ID, RELAY_PATH,
+    RELAY_SNI, RELAY_SHORT_ID,
     VPN_NAME
 )
 
@@ -29,22 +25,18 @@ def _restart_xray():
 
 
 def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts):
-    """Пишет клиента в clients, client_inbounds и JSON inbounds.settings."""
+    """Создаёт клиента в панели 3x-ui (для учёта)."""
     c = conn.cursor()
     now_ms = int(time.time() * 1000)
     expiry_ms = expiry_ts * 1000
 
-    # Xray 25.x — flow для Reality НЕ НУЖЕН (в новых версиях убран)
-    flow_value = ""
-
-    # 1. UPSERT в таблицу clients
     c.execute("SELECT id FROM clients WHERE email = ?", (email,))
     row = c.fetchone()
     if row:
         client_id = row[0]
         c.execute("""UPDATE clients SET sub_id=?, uuid=?, limit_ip=?, total_gb=?,
-                     expiry_time=?, enable=?, updated_at=?, flow=? WHERE id=?""",
-                  (sub_id, new_uuid, 1, 0, expiry_ms, 1, now_ms, flow_value, client_id))
+                     expiry_time=?, enable=?, updated_at=? WHERE id=?""",
+                  (sub_id, new_uuid, 1, 0, expiry_ms, 1, now_ms, client_id))
     else:
         c.execute("""INSERT INTO clients
                      (email, sub_id, uuid, limit_ip, total_gb, expiry_time, enable,
@@ -52,20 +44,18 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
                       created_at, updated_at, flow, security)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                   (email, sub_id, new_uuid, 1, 0, expiry_ms, 1,
-                   0, 0, 0, 0, "never", 1, now_ms, now_ms, flow_value, "auto"))
+                   0, 0, 0, 0, "never", 1, now_ms, now_ms, "", "auto"))
         c.execute("SELECT id FROM clients WHERE email = ?", (email,))
         client_id = c.fetchone()[0]
 
-    # 2. Связь client_inbounds
     try:
         c.execute("""INSERT OR IGNORE INTO client_inbounds
                      (client_id, inbound_id, flow_override, created_at)
                      VALUES (?, ?, ?, ?)""",
-                  (client_id, inbound_id, flow_value, now_ms))
+                  (client_id, inbound_id, "", now_ms))
     except Exception as e:
         logger.warning("client_inbounds insert: %s" % e)
 
-    # 3. JSON в inbounds.settings
     c.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
     row2 = c.fetchone()
     if row2:
@@ -81,7 +71,7 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
                 clients.append({
                     "id": new_uuid,
                     "email": email,
-                    "flow": flow_value,
+                    "flow": "",
                     "limitIp": 1,
                     "totalGB": 0,
                     "expiryTime": expiry_ms,
@@ -98,7 +88,21 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
     return True
 
 
+def get_relay_link():
+    """Возвращает единственную ссылку — российский relay."""
+    return (
+        "vless://%s@%s:%d"
+        "?type=tcp&security=reality&sni=%s"
+        "&pbk=%s&sid=%s&fp=chrome"
+        "&allowInsecure=1&encryption=none"
+        "#%s"
+    ) % (RELAY_UUID, RELAY_IP, RELAY_PORT,
+         RELAY_SNI, RELAY_PUBLIC_KEY, RELAY_SHORT_ID,
+         "🇷🇺 Нидерланды")
+
+
 def create_client(days, email=None):
+    """Создаёт клиента в панели для учёта, возвращает relay-ссылку."""
     if not email:
         email = "%s_%d_%d" % (VPN_NAME.replace(" ", "_"), int(time.time()), random.randint(1000, 9999))
     expiry_ts = int(time.time()) + days * 86400
@@ -107,60 +111,20 @@ def create_client(days, email=None):
 
     conn = sqlite3.connect(PANEL_DB_PATH)
     try:
-        _add_client_everywhere(conn, INBOUND_XHTTP_ID, email, new_uuid, sub_id, expiry_ts)
         _add_client_everywhere(conn, INBOUND_REALITY_ID, email, new_uuid, sub_id, expiry_ts)
+        _add_client_everywhere(conn, INBOUND_XHTTP_ID, email, new_uuid, sub_id, expiry_ts)
         conn.commit()
     finally:
         conn.close()
 
     _restart_xray()
 
-    sub_link = "http://%s:%d/sub/%s" % (PANEL_SERVER_IP, SUB_PORT, sub_id)
-
-    # 1. Reality (Нидерланды) — БЕЗ flow
-    reality_link = (
-        "vless://%s@%s:%d"
-        "?type=tcp&security=reality&sni=%s"
-        "&pbk=%s&fp=%s&sid=%s&spx=%s"
-        "&allowInsecure=1&encryption=none"
-        "#%s"
-    ) % (new_uuid, PANEL_SERVER_IP, REALITY_PORT, REALITY_SNI,
-         REALITY_PUBLIC_KEY, REALITY_FINGERPRINT, REALITY_SHORT_ID,
-         REALITY_SPIDER_X, "🇳🇱 Нидерланды")
-
-    # 2. XHTTP (Нидерланды, обход)
-    xhttp_link = (
-        "vless://%s@%s:%d"
-        "?type=xhttp&mode=%s"
-        "&host=%s&path=%s"
-        "&security=tls&sni=%s"
-        "&fp=%s&alpn=%s"
-        "&allowInsecure=1&encryption=none"
-        "#%s"
-    ) % (new_uuid, PANEL_SERVER_IP, XHTTP_PORT, XHTTP_MODE,
-         XHTTP_HOST, XHTTP_PATH, XHTTP_SNI,
-         XHTTP_FINGERPRINT, XHTTP_ALPN.replace(",", "%2C"),
-         "🇳🇱 Нидерланды (обход)")
-
-    # 3. Relay (Российский IP → Нидерланды)
-    relay_link = (
-        "vless://%s@%s:%d"
-        "?type=xhttp&mode=packet-up"
-        "&path=%s"
-        "&security=reality&sni=%s"
-        "&pbk=%s&sid=%s&fp=chrome"
-        "&allowInsecure=1&encryption=none"
-        "#%s"
-    ) % (RELAY_UUID, RELAY_IP, RELAY_PORT,
-         RELAY_PATH, RELAY_SNI, RELAY_PUBLIC_KEY, RELAY_SHORT_ID,
-         "🇷🇺 Relay (мобильный)")
+    relay_link = get_relay_link()
 
     return {
         "id": new_uuid,
         "uuid": new_uuid,
-        "link": sub_link,
-        "reality_link": reality_link,
-        "xhttp_link": xhttp_link,
+        "link": relay_link,
         "relay_link": relay_link,
         "sub_id": sub_id,
         "expiry_time": expiry_ts,
