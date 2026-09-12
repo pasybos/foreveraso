@@ -25,8 +25,7 @@ def _restart_xray():
 
 
 def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts):
-    """Пишет клиента в clients, client_inbounds и JSON inbounds.settings.
-    Flow устанавливается только для Reality-инбаунда, не затрагивая XHTTP."""
+    """Пишет клиента в clients, client_inbounds и JSON inbounds.settings."""
     c = conn.cursor()
     now_ms = int(time.time() * 1000)
     expiry_ms = expiry_ts * 1000
@@ -34,14 +33,14 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
     # flow = xtls-rprx-vision ТОЛЬКО для Reality
     flow_value = "xtls-rprx-vision" if inbound_id == INBOUND_REALITY_ID else ""
 
-    # 1. UPSERT в таблицу clients
+    # 1. UPSERT в таблицу clients (с обновлением flow)
     c.execute("SELECT id FROM clients WHERE email = ?", (email,))
     row = c.fetchone()
     if row:
         client_id = row[0]
         c.execute("""UPDATE clients SET sub_id=?, uuid=?, limit_ip=?, total_gb=?,
-                     expiry_time=?, enable=?, updated_at=? WHERE id=?""",
-                  (sub_id, new_uuid, 1, 0, expiry_ms, 1, now_ms, client_id))
+                     expiry_time=?, enable=?, updated_at=?, flow=? WHERE id=?""",
+                  (sub_id, new_uuid, 1, 0, expiry_ms, 1, now_ms, flow_value, client_id))
     else:
         c.execute("""INSERT INTO clients
                      (email, sub_id, uuid, limit_ip, total_gb, expiry_time, enable,
@@ -72,7 +71,6 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
             found = False
             for cl in clients:
                 if cl.get("id") == new_uuid:
-                    # Обновляем flow ТОЛЬКО для Reality
                     if inbound_id == INBOUND_REALITY_ID:
                         cl["flow"] = flow_value
                     found = True
@@ -107,8 +105,8 @@ def create_client(days, email=None):
 
     conn = sqlite3.connect(PANEL_DB_PATH)
     try:
-        # ⚠️ ВАЖЕН ПОРЯДОК: сначала XHTTP, потом Reality.
-        # Иначе пустой flow от XHTTP затрёт flow Reality в таблице clients.
+        # ⚠️ ВАЖЕН ПОРЯДОК: сначала XHTTP (без flow), потом Reality (с flow).
+        # Иначе пустой flow от XHTTP затрёт flow Reality.
         _add_client_everywhere(conn, INBOUND_XHTTP_ID, email, new_uuid, sub_id, expiry_ts)
         _add_client_everywhere(conn, INBOUND_REALITY_ID, email, new_uuid, sub_id, expiry_ts)
         conn.commit()
