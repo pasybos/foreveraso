@@ -1,4 +1,3 @@
-cat > /root/panel_api.py << 'APIEOF'
 import sqlite3
 import time
 import random
@@ -206,4 +205,3 @@ def extend_client(client_id, extra_days):
     except Exception as e:
         logger.error("extend_client error: %s" % e)
         return False
-APIEOF
