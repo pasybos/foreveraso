@@ -14,12 +14,10 @@ DB_PATH = os.path.join(BASE_DIR, "users.db")
 
 FREE_HOURS = 24
 
-# --- Панель 3x-ui ---
 PANEL_DB_PATH = "/etc/x-ui/x-ui.db"
 PANEL_SERVER_IP = "89.125.33.130"
 SUB_PORT = 2096
 
-# --- Reality-инбаунд (Нидерланды) — порт 443, VK-маскировка ---
 INBOUND_REALITY_ID = 1
 REALITY_PORT = 443
 REALITY_SNI = "sun6-21.userapi.com"
@@ -28,13 +26,11 @@ REALITY_SPIDER_X = "/BevXivqIOpAwr8e"
 REALITY_PUBLIC_KEY = "5I-t7A_iNuQ3RQnc27QyoxgL7at_mohR6ZhUQGcJB1k"
 REALITY_SHORT_ID = "be93"
 
-# --- XHTTP-инбаунд (Обход белых списков) — порт 2053 ---
 INBOUND_XHTTP_ID = 22
 XHTTP_PORT = 2053
 XHTTP_HOST = "foreverasovpn.work.gd"
 XHTTP_PATH = "/api/v9/feed"
 
-# --- Тарифы ---
 TARIFFS = {
     "free":     {"days": 1,    "label": "Бесплатная",  "price_rub": "0",    "price_stars": 0},
     "ref":      {"days": 14,   "label": "Реферальная", "price_rub": "0",    "price_stars": 0},
