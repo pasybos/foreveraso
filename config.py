@@ -21,7 +21,7 @@ SUB_PORT = 2096
 
 # --- XHTTP-инбаунд (единственный рабочий) ---
 INBOUND_XHTTP_ID = 22
-XHTTP_PORT = 2053
+XHTTP_PORT = 443
 XHTTP_HOST = "foreverasovpn.work.gd"
 XHTTP_PATH = "/api/v9/feed"
 XHTTP_SNI = "foreverasovpn.work.gd"
