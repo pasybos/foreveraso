@@ -12,6 +12,8 @@ from config import (
     PANEL_SERVER_IP, SUB_PORT, REALITY_PORT,
     XHTTP_HOST, XHTTP_PORT, XHTTP_PATH,
     XHTTP_SNI, XHTTP_FINGERPRINT, XHTTP_ALPN, XHTTP_MODE,
+    RELAY_IP, RELAY_PORT, RELAY_UUID, RELAY_PUBLIC_KEY,
+    RELAY_SNI, RELAY_SHORT_ID, RELAY_PATH,
     VPN_NAME
 )
 
@@ -32,7 +34,7 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
     now_ms = int(time.time() * 1000)
     expiry_ms = expiry_ts * 1000
 
-    # Reality работает БЕЗ flow в этой версии, поэтому flow пустой
+    # Xray 25.x — flow для Reality НЕ НУЖЕН (в новых версиях убран)
     flow_value = ""
 
     # 1. UPSERT в таблицу clients
@@ -63,7 +65,7 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
     except Exception as e:
         logger.warning("client_inbounds insert: %s" % e)
 
-    # 3. JSON в inbounds.settings (чтобы Xray видел клиента)
+    # 3. JSON в inbounds.settings
     c.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
     row2 = c.fetchone()
     if row2:
@@ -115,7 +117,7 @@ def create_client(days, email=None):
 
     sub_link = "http://%s:%d/sub/%s" % (PANEL_SERVER_IP, SUB_PORT, sub_id)
 
-    # Reality ссылка — ТОЧНО КАК РАБОЧАЯ, БЕЗ flow
+    # 1. Reality (Нидерланды) — БЕЗ flow
     reality_link = (
         "vless://%s@%s:%d"
         "?type=tcp&security=reality&sni=%s"
@@ -126,7 +128,7 @@ def create_client(days, email=None):
          REALITY_PUBLIC_KEY, REALITY_FINGERPRINT, REALITY_SHORT_ID,
          REALITY_SPIDER_X, "🇳🇱 Нидерланды")
 
-    # XHTTP ссылка
+    # 2. XHTTP (Нидерланды, обход)
     xhttp_link = (
         "vless://%s@%s:%d"
         "?type=xhttp&mode=%s"
@@ -140,12 +142,26 @@ def create_client(days, email=None):
          XHTTP_FINGERPRINT, XHTTP_ALPN.replace(",", "%2C"),
          "🇳🇱 Нидерланды (обход)")
 
+    # 3. Relay (Российский IP → Нидерланды)
+    relay_link = (
+        "vless://%s@%s:%d"
+        "?type=xhttp&mode=packet-up"
+        "&path=%s"
+        "&security=reality&sni=%s"
+        "&pbk=%s&sid=%s&fp=chrome"
+        "&allowInsecure=1&encryption=none"
+        "#%s"
+    ) % (RELAY_UUID, RELAY_IP, RELAY_PORT,
+         RELAY_PATH, RELAY_SNI, RELAY_PUBLIC_KEY, RELAY_SHORT_ID,
+         "🇷🇺 Relay (мобильный)")
+
     return {
         "id": new_uuid,
         "uuid": new_uuid,
         "link": sub_link,
         "reality_link": reality_link,
         "xhttp_link": xhttp_link,
+        "relay_link": relay_link,
         "sub_id": sub_id,
         "expiry_time": expiry_ts,
         "email": email,
