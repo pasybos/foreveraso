@@ -25,20 +25,23 @@ def _restart_xray():
 
 
 def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts):
-    """Пишет клиента в clients, client_inbounds и JSON inbounds.settings"""
+    """Пишет клиента в clients, client_inbounds и JSON inbounds.settings.
+    Flow устанавливается только для Reality-инбаунда, не затрагивая XHTTP."""
     c = conn.cursor()
     now_ms = int(time.time() * 1000)
     expiry_ms = expiry_ts * 1000
 
+    # flow = xtls-rprx-vision ТОЛЬКО для Reality
     flow_value = "xtls-rprx-vision" if inbound_id == INBOUND_REALITY_ID else ""
 
+    # 1. UPSERT в таблицу clients
     c.execute("SELECT id FROM clients WHERE email = ?", (email,))
     row = c.fetchone()
     if row:
         client_id = row[0]
         c.execute("""UPDATE clients SET sub_id=?, uuid=?, limit_ip=?, total_gb=?,
-                     expiry_time=?, enable=?, updated_at=?, flow=? WHERE id=?""",
-                  (sub_id, new_uuid, 1, 0, expiry_ms, 1, now_ms, flow_value, client_id))
+                     expiry_time=?, enable=?, updated_at=? WHERE id=?""",
+                  (sub_id, new_uuid, 1, 0, expiry_ms, 1, now_ms, client_id))
     else:
         c.execute("""INSERT INTO clients
                      (email, sub_id, uuid, limit_ip, total_gb, expiry_time, enable,
@@ -50,6 +53,7 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
         c.execute("SELECT id FROM clients WHERE email = ?", (email,))
         client_id = c.fetchone()[0]
 
+    # 2. Связь client_inbounds
     try:
         c.execute("""INSERT OR IGNORE INTO client_inbounds
                      (client_id, inbound_id, flow_override, created_at)
@@ -58,6 +62,7 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
     except Exception as e:
         logger.warning("client_inbounds insert: %s" % e)
 
+    # 3. JSON в inbounds.settings (чтобы Xray видел клиента)
     c.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
     row2 = c.fetchone()
     if row2:
@@ -67,7 +72,9 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
             found = False
             for cl in clients:
                 if cl.get("id") == new_uuid:
-                    cl["flow"] = flow_value
+                    # Обновляем flow ТОЛЬКО для Reality
+                    if inbound_id == INBOUND_REALITY_ID:
+                        cl["flow"] = flow_value
                     found = True
                     break
             if not found:
@@ -100,8 +107,10 @@ def create_client(days, email=None):
 
     conn = sqlite3.connect(PANEL_DB_PATH)
     try:
-        _add_client_everywhere(conn, INBOUND_REALITY_ID, email, new_uuid, sub_id, expiry_ts)
+        # ⚠️ ВАЖЕН ПОРЯДОК: сначала XHTTP, потом Reality.
+        # Иначе пустой flow от XHTTP затрёт flow Reality в таблице clients.
         _add_client_everywhere(conn, INBOUND_XHTTP_ID, email, new_uuid, sub_id, expiry_ts)
+        _add_client_everywhere(conn, INBOUND_REALITY_ID, email, new_uuid, sub_id, expiry_ts)
         conn.commit()
     finally:
         conn.close()
