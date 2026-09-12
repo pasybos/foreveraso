@@ -14,11 +14,12 @@ DB_PATH = os.path.join(BASE_DIR, "users.db")
 
 FREE_HOURS = 24
 
+# --- Панель 3x-ui ---
 PANEL_DB_PATH = "/etc/x-ui/x-ui.db"
 PANEL_SERVER_IP = "89.125.33.130"
 SUB_PORT = 2096
 
-# --- Reality-инбаунд (Нидерланды, Amazon) ---
+# --- Reality-инбаунд (Нидерланды, VK-маскировка) ---
 INBOUND_REALITY_ID = 20
 REALITY_PORT = 8444
 REALITY_SNI = "sun6-21.userapi.com"
@@ -27,7 +28,7 @@ REALITY_SPIDER_X = "/BevXivqIOpAwr8e"
 REALITY_PUBLIC_KEY = "5I-t7A_iNuQ3RQnc27QyoxgL7at_mohR6ZhUQGcJB1k"
 REALITY_SHORT_ID = "be93"
 
-# --- XHTTP-инбаунд (Нидерланды, обход) ---
+# --- XHTTP-инбаунд (Нидерланды, обход белых списков) ---
 INBOUND_XHTTP_ID = 22
 XHTTP_PORT = 443
 XHTTP_HOST = "foreverasovpn.work.gd"
@@ -37,6 +38,7 @@ XHTTP_FINGERPRINT = "firefox"
 XHTTP_ALPN = "h2,http/1.1"
 XHTTP_MODE = "packet-up"
 
+# --- Тарифы ---
 TARIFFS = {
     "free":     {"days": 1,    "label": "Бесплатная",  "price_rub": "0",    "price_stars": 0},
     "ref":      {"days": 14,   "label": "Реферальная", "price_rub": "0",    "price_stars": 0},
