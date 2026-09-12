@@ -6,11 +6,11 @@ import uuid
 import json
 import subprocess
 from config import (
-    PANEL_DB_PATH, INBOUND_REALITY_ID, INBOUND_XHTTP_ID,
-    REALITY_SNI, REALITY_FINGERPRINT, REALITY_SPIDER_X,
-    REALITY_PUBLIC_KEY, REALITY_SHORT_ID,
-    PANEL_SERVER_IP, SUB_PORT, REALITY_PORT,
-    XHTTP_HOST, XHTTP_PORT, XHTTP_PATH, VPN_NAME
+    PANEL_DB_PATH, INBOUND_XHTTP_ID,
+    PANEL_SERVER_IP, SUB_PORT,
+    XHTTP_HOST, XHTTP_PORT, XHTTP_PATH,
+    XHTTP_SNI, XHTTP_FINGERPRINT, XHTTP_ALPN, XHTTP_MODE,
+    VPN_NAME
 )
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,8 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
     now_ms = int(time.time() * 1000)
     expiry_ms = expiry_ts * 1000
 
-    flow_value = "xtls-rprx-vision" if inbound_id == INBOUND_REALITY_ID else ""
+    # XHTTP — flow не нужен
+    flow_value = ""
 
     # 1. UPSERT в таблицу clients
     c.execute("SELECT id FROM clients WHERE email = ?", (email,))
@@ -60,7 +61,7 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
     except Exception as e:
         logger.warning("client_inbounds insert: %s" % e)
 
-    # 3. JSON в inbounds.settings
+    # 3. JSON в inbounds.settings (чтобы Xray видел клиента)
     c.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
     row2 = c.fetchone()
     if row2:
@@ -70,8 +71,6 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
             found = False
             for cl in clients:
                 if cl.get("id") == new_uuid:
-                    if inbound_id == INBOUND_REALITY_ID:
-                        cl["flow"] = flow_value
                     found = True
                     break
             if not found:
@@ -104,9 +103,7 @@ def create_client(days, email=None):
 
     conn = sqlite3.connect(PANEL_DB_PATH)
     try:
-        # Сначала XHTTP (без flow), потом Reality (с flow)
         _add_client_everywhere(conn, INBOUND_XHTTP_ID, email, new_uuid, sub_id, expiry_ts)
-        _add_client_everywhere(conn, INBOUND_REALITY_ID, email, new_uuid, sub_id, expiry_ts)
         conn.commit()
     finally:
         conn.close()
@@ -115,16 +112,19 @@ def create_client(days, email=None):
 
     sub_link = "http://%s:%d/sub/%s" % (PANEL_SERVER_IP, SUB_PORT, sub_id)
 
-    # Прямая ссылка на Reality (Нидерланды) с allowInsecure=1
+    # Прямая ссылка на XHTTP-сервер
     direct_link = (
         "vless://%s@%s:%d"
-        "?type=tcp&security=reality&sni=%s"
-        "&pbk=%s&fp=%s&sid=%s&spx=%s"
-        "&flow=xtls-rprx-vision&allowInsecure=1&encryption=none"
+        "?type=xhttp&mode=%s"
+        "&host=%s&path=%s"
+        "&security=tls&sni=%s"
+        "&fp=%s&alpn=%s"
+        "&encryption=none&allowInsecure=1"
         "#%s"
-    ) % (new_uuid, PANEL_SERVER_IP, REALITY_PORT, REALITY_SNI,
-         REALITY_PUBLIC_KEY, REALITY_FINGERPRINT, REALITY_SHORT_ID,
-         REALITY_SPIDER_X, "🇳🇱 Нидерланды")
+    ) % (new_uuid, PANEL_SERVER_IP, XHTTP_PORT, XHTTP_MODE,
+         XHTTP_HOST, XHTTP_PATH, XHTTP_SNI,
+         XHTTP_FINGERPRINT, XHTTP_ALPN.replace(",", "%2C"),
+         "🇳🇱 Нидерланды (обход)")
 
     return {
         "id": new_uuid,
@@ -152,18 +152,17 @@ def delete_client(client_id):
             except:
                 pass
 
-        for inbound_id in (INBOUND_REALITY_ID, INBOUND_XHTTP_ID):
-            c.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
-            r = c.fetchone()
-            if not r:
-                continue
+        c.execute("SELECT settings FROM inbounds WHERE id = ?", (INBOUND_XHTTP_ID,))
+        r = c.fetchone()
+        if r:
             data = json.loads(r[0])
             clients = data.get("clients", [])
             new_clients = [cl for cl in clients if cl.get("id") != client_id]
             if len(new_clients) != len(clients):
                 data["clients"] = new_clients
                 c.execute("UPDATE inbounds SET settings = ? WHERE id = ?",
-                          (json.dumps(data), inbound_id))
+                          (json.dumps(data), INBOUND_XHTTP_ID))
+
         conn.commit()
         conn.close()
         _restart_xray()
@@ -187,11 +186,9 @@ def extend_client(client_id, extra_days):
             c.execute("UPDATE clients SET expiry_time = ?, updated_at = ? WHERE id = ?",
                       (new_exp, int(time.time() * 1000), db_id))
 
-        for inbound_id in (INBOUND_REALITY_ID, INBOUND_XHTTP_ID):
-            c.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
-            r = c.fetchone()
-            if not r:
-                continue
+        c.execute("SELECT settings FROM inbounds WHERE id = ?", (INBOUND_XHTTP_ID,))
+        r = c.fetchone()
+        if r:
             data = json.loads(r[0])
             clients = data.get("clients", [])
             for cl in clients:
@@ -202,7 +199,8 @@ def extend_client(client_id, extra_days):
                     cl["expiryTime"] = cur + add_ms
                     break
             c.execute("UPDATE inbounds SET settings = ? WHERE id = ?",
-                      (json.dumps(data), inbound_id))
+                      (json.dumps(data), INBOUND_XHTTP_ID))
+
         conn.commit()
         conn.close()
         _restart_xray()
