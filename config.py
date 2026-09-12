@@ -16,21 +16,23 @@ FREE_HOURS = 24
 
 # --- Панель 3x-ui ---
 PANEL_DB_PATH = "/etc/x-ui/x-ui.db"
-INBOUND_REALITY_ID = 20
-INBOUND_XHTTP_ID = 22
 PANEL_SERVER_IP = "89.125.33.130"
 SUB_PORT = 2096
-REALITY_PORT = 8444
+
+# --- Reality-инбаунд (Нидерланды) — порт 443, VK-маскировка ---
+INBOUND_REALITY_ID = 1
+REALITY_PORT = 443
+REALITY_SNI = "sun6-21.userapi.com"
+REALITY_FINGERPRINT = "chrome"
+REALITY_SPIDER_X = "/BevXivqIOpAwr8e"
+REALITY_PUBLIC_KEY = "5I-t7A_iNuQ3RQnc27QyoxgL7at_mohR6ZhUQGcJB1k"
+REALITY_SHORT_ID = "be93"
+
+# --- XHTTP-инбаунд (Обход белых списков) — порт 2053 ---
+INBOUND_XHTTP_ID = 22
 XHTTP_PORT = 2053
 XHTTP_HOST = "foreverasovpn.work.gd"
 XHTTP_PATH = "/api/v9/feed"
-
-# --- Reality параметры (инбаунд 20) ---
-REALITY_SNI = "privacy.microsoft.com"
-REALITY_FINGERPRINT = "firefox"
-REALITY_SPIDER_X = "/"
-REALITY_PUBLIC_KEY = "TeO1SxMkKBmOwPz9WsWphxUiIey-HCFWMOwvhXxc8Bc"
-REALITY_SHORT_ID = "365bd548"
 
 # --- Тарифы ---
 TARIFFS = {
