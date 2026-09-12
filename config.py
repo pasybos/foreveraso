@@ -21,7 +21,7 @@ SUB_PORT = 2096
 # --- Reality-инбаунд (Нидерланды, Amazon) ---
 INBOUND_REALITY_ID = 20
 REALITY_PORT = 8444
-REALITY_SNI = "p-nt-www-amazon-com-kalias.amazon.com"
+REALITY_SNI = "sun6-21.userapi.com"
 REALITY_FINGERPRINT = "chrome"
 REALITY_SPIDER_X = "/BevXivqIOpAwr8e"
 REALITY_PUBLIC_KEY = "5I-t7A_iNuQ3RQnc27QyoxgL7at_mohR6ZhUQGcJB1k"
