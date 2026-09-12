@@ -95,20 +95,18 @@ subscribe_keyboard = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 
-def build_sub_message(title, tariff_label, days, expire_ts, sub_link, relay_link):
-    """Формирует красивое сообщение с подпиской и relay-ссылкой."""
+def build_sub_message(title, tariff_label, days, expire_ts, relay_link):
+    """Формирует сообщение с ОДНОЙ ссылкой — российский relay."""
     return (
         "✅ *%s*\n\n"
         "▸ Тариф: *%s*\n"
         "▸ Срок: *%d дней*\n"
         "▸ Действует до: *%s*\n\n"
-        "🔗 *Ссылка подписки* (Wi-Fi + резерв, 2 сервера):\n"
+        "🔗 *Ваша ссылка:*\n"
         "`%s`\n\n"
-        "📱 *Ссылка для мобильного* (relay, обход белых списков):\n"
-        "`%s`\n\n"
-        "📌 Для Wi-Fi используйте первую ссылку в V2RayTun/Happ.\n"
-        "Для мобильного интернета — вторую (relay) отдельным подключением."
-    ) % (title, tariff_label, days, format_datetime(expire_ts), sub_link, relay_link)
+        "📌 Вставьте в Happ / V2RayNG / Nekobox.\n"
+        "✅ Включите Allow Insecure."
+    ) % (title, tariff_label, days, format_datetime(expire_ts), relay_link)
 
 
 async def check_subscription(user_id):
@@ -186,7 +184,7 @@ async def give_ref_bonus(tg_id):
         await bot.send_message(
             tg_id,
             build_sub_message("🎉 Реферальный бонус!", "Реферальная", bonus_days,
-                              cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+                              cd["expiry_time"], cd["relay_link"]),
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -245,7 +243,7 @@ async def get_free(callback: types.CallbackQuery):
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
         await callback.message.answer(
             build_sub_message("Бесплатная подписка активирована! 🎉", "Бесплатная", 1,
-                              cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+                              cd["expiry_time"], cd["relay_link"]),
             parse_mode="Markdown",
             reply_markup=back_button)
     except Exception as e:
@@ -352,7 +350,7 @@ async def successful_payment(message: types.Message):
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
         await message.answer(
             build_sub_message("Оплата прошла успешно! 🎉", t["label"], t["days"],
-                              cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+                              cd["expiry_time"], cd["relay_link"]),
             parse_mode="Markdown")
     except Exception as e:
         logger.error("payment error: %s" % e)
@@ -421,7 +419,7 @@ async def activate_tariff(message: types.Message, state: FSMContext):
             await bot.send_message(
                 uid,
                 build_sub_message("🎉 Админ активировал подписку!", t["label"], t["days"],
-                                  cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+                                  cd["expiry_time"], cd["relay_link"]),
                 parse_mode="Markdown")
         except:
             pass
@@ -454,7 +452,7 @@ async def activate_ref_process(message: types.Message, state: FSMContext):
             await bot.send_message(
                 uid,
                 build_sub_message("🎉 Реф-подписка от админа", "Реферальная", 14,
-                                  cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+                                  cd["expiry_time"], cd["relay_link"]),
                 parse_mode="Markdown")
         except:
             pass
@@ -699,11 +697,10 @@ async def instructions(callback: types.CallbackQuery):
     text = (
         "📖 Инструкция:\n\n"
         "1️⃣ Получите подписку через бота.\n"
-        "2️⃣ Скопируйте ссылку подписки — она для Wi-Fi.\n"
-        "3️⃣ Для мобильного интернета — используйте ОТДЕЛЬНУЮ relay-ссылку (вторую в сообщении).\n"
-        "4️⃣ Вставьте в клиент (Happ / V2RayNG / Nekobox).\n"
-        "5️⃣ Включите Allow Insecure.\n"
-        "6️⃣ Подключайтесь 🚀"
+        "2️⃣ Скопируйте ссылку.\n"
+        "3️⃣ Вставьте в клиент (Happ / V2RayNG / Nekobox).\n"
+        "4️⃣ Включите Allow Insecure.\n"
+        "5️⃣ Подключайтесь 🚀"
     )
     if callback.message.text:
         try:
@@ -772,7 +769,7 @@ async def promo_activate(message: types.Message, state: FSMContext):
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
         await message.answer(
             build_sub_message("✅ Промокод активирован!", "Промокод", days,
-                              cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+                              cd["expiry_time"], cd["relay_link"]),
             parse_mode="Markdown")
     except Exception as e:
         logger.error("promo error: %s" % e)
