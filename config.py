@@ -26,11 +26,11 @@ XHTTP_HOST = "foreverasovpn.work.gd"
 XHTTP_PATH = "/api/v9/feed"
 
 # --- Reality параметры (инбаунд 20) ---
-REALITY_SNI = "p-nt-www-amazon-com-kalias.amazon.com"
+REALITY_SNI = "privacy.microsoft.com"
 REALITY_FINGERPRINT = "firefox"
 REALITY_SPIDER_X = "/"
 REALITY_PUBLIC_KEY = "TeO1SxMkKBmOwPz9WsWphxUiIey-HCFWMOwvhXxc8Bc"
-REALITY_SHORT_ID = "f831"
+REALITY_SHORT_ID = "365bd548"
 
 # --- Тарифы ---
 TARIFFS = {
