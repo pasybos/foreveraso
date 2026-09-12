@@ -1,3 +1,4 @@
+cat > /root/vpn_bot/panel_api.py << 'APIEOF'
 import sqlite3
 import time
 import random
@@ -9,17 +10,17 @@ from config import (
     PANEL_DB_PATH, INBOUND_REALITY_ID, INBOUND_XHTTP_ID,
     REALITY_SNI, REALITY_FINGERPRINT, REALITY_SPIDER_X,
     REALITY_PUBLIC_KEY, REALITY_SHORT_ID,
-    PANEL_SERVER_IP, SUB_PORT, REALITY_PORT, VPN_NAME
+    PANEL_SERVER_IP, SUB_PORT, REALITY_PORT,
+    XHTTP_HOST, XHTTP_PORT, XHTTP_PATH, VPN_NAME
 )
 
 logger = logging.getLogger(__name__)
 
 
 def _restart_xray():
-    """Быстрый перезапуск Xray через SIGKILL. Systemd поднимет его за секунду."""
     try:
-        subprocess.run(["systemctl", "kill", "--signal=SIGKILL", "xray"], timeout=10)
-        logger.info("Xray перезапущен (быстро)")
+        subprocess.run(["x-ui", "restart"], timeout=20)
+        logger.info("Xray перезапущен через x-ui")
     except Exception as e:
         logger.error("Xray restart failed: %s" % e)
 
@@ -73,8 +74,10 @@ def create_client(days, email=None):
 
     _restart_xray()
 
+    # Одна ссылка подписки, внутри — 2 сервера (Reality + XHTTP)
     sub_link = "http://%s:%d/sub/%s" % (PANEL_SERVER_IP, SUB_PORT, sub_id)
 
+    # Прямая ссылка на Reality (Нидерланды)
     direct_link = (
         "vless://%s@%s:%d"
         "?type=tcp&security=reality&sni=%s"
@@ -82,7 +85,7 @@ def create_client(days, email=None):
         "#%s"
     ) % (new_uuid, PANEL_SERVER_IP, REALITY_PORT, REALITY_SNI,
          REALITY_PUBLIC_KEY, REALITY_FINGERPRINT, REALITY_SHORT_ID,
-         REALITY_SPIDER_X, VPN_NAME)
+         REALITY_SPIDER_X, "Нидерланды")
 
     return {
         "id": new_uuid,
@@ -142,3 +145,4 @@ def extend_client(client_id, extra_days):
     except Exception as e:
         logger.error("extend_client error: %s" % e)
         return False
+APIEOF
