@@ -7,7 +7,6 @@ import json
 import subprocess
 from config import (
     PANEL_DB_PATH, INBOUND_REALITY_ID, INBOUND_XHTTP_ID,
-    PANEL_SERVER_IP, SUB_PORT,
     RELAY_IP, RELAY_PORT, RELAY_UUID, RELAY_PUBLIC_KEY,
     RELAY_SNI, RELAY_SHORT_ID,
     VPN_NAME
