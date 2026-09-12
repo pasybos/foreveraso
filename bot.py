@@ -17,7 +17,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import (
-    BOT_TOKEN, ADMIN_IDS, VPN_NAME, DB_PATH,
+    BOT_TOKEN, ADMIN_IDS, VPN_NAME, DB_PATH, SUB_SERVER_PORT,
     CHANNEL_ID, PAYMENT_CONTACT, IMAGE_PATH, BOT_USERNAME, TARIFFS
 )
 from database import (
@@ -95,18 +95,22 @@ subscribe_keyboard = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 
-def build_sub_message(title, tariff_label, days, expire_ts, relay_link):
-    """Формирует сообщение с ОДНОЙ ссылкой — российский relay."""
+def build_sub_message(title, tariff_label, days, expire_ts, sub_id):
+    sub_link = "http://89.125.33.130:%d/sub/%s" % (SUB_SERVER_PORT, sub_id)
     return (
         "✅ *%s*\n\n"
         "▸ Тариф: *%s*\n"
         "▸ Срок: *%d дней*\n"
         "▸ Действует до: *%s*\n\n"
-        "🔗 *Ваша ссылка:*\n"
+        "🔗 *Ваша подписка (3 сервера):*\n"
         "`%s`\n\n"
-        "📌 Вставьте в Happ / V2RayNG / Nekobox.\n"
+        "📋 *Внутри:*\n"
+        "🇳🇱 Нидерланды (Reality)\n"
+        "🇳🇱 Нидерланды (обход)\n"
+        "🇷🇺 Нидерланды (relay, для мобильного)\n\n"
+        "📌 Вставьте ссылку в Happ / V2RayNG / Nekobox.\n"
         "✅ Включите Allow Insecure."
-    ) % (title, tariff_label, days, format_datetime(expire_ts), relay_link)
+    ) % (title, tariff_label, days, format_datetime(expire_ts), sub_link)
 
 
 async def check_subscription(user_id):
@@ -184,9 +188,8 @@ async def give_ref_bonus(tg_id):
         await bot.send_message(
             tg_id,
             build_sub_message("🎉 Реферальный бонус!", "Реферальная", bonus_days,
-                              cd["expiry_time"], cd["relay_link"]),
-            parse_mode="Markdown"
-        )
+                              cd["expiry_time"], cd["sub_id"]),
+            parse_mode="Markdown")
     except Exception as e:
         logger.error("ref bonus error: %s" % e)
 
@@ -243,12 +246,11 @@ async def get_free(callback: types.CallbackQuery):
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
         await callback.message.answer(
             build_sub_message("Бесплатная подписка активирована! 🎉", "Бесплатная", 1,
-                              cd["expiry_time"], cd["relay_link"]),
-            parse_mode="Markdown",
-            reply_markup=back_button)
+                              cd["expiry_time"], cd["sub_id"]),
+            parse_mode="Markdown", reply_markup=back_button)
     except Exception as e:
         logger.error("get_free error: %s" % e)
-        await callback.message.answer("❌ Ошибка при создании подписки. Админ уведомлён.")
+        await callback.message.answer("❌ Ошибка при создании подписки.")
         for a in ADMIN_IDS:
             try:
                 await bot.send_message(a, "Ошибка выдачи free: %s" % e)
@@ -283,8 +285,7 @@ async def buy_stars_menu(callback: types.CallbackQuery):
             continue
         kb.inline_keyboard.append([InlineKeyboardButton(
             text="%s — %d ⭐" % (t["label"], t["price_stars"]),
-            callback_data="stars_%s" % k
-        )])
+            callback_data="stars_%s" % k)])
     kb.inline_keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="buy_menu")])
     if callback.message.text:
         await callback.message.edit_text("⭐ Выберите тариф:", reply_markup=kb)
@@ -320,11 +321,9 @@ async def buy_stars(callback: types.CallbackQuery):
         title="Подписка %s — %s" % (VPN_NAME, t["label"]),
         description="Доступ на %d дней" % t["days"],
         payload="stars_%s_%d" % (key, callback.from_user.id),
-        provider_token="",
-        currency="XTR",
+        provider_token="", currency="XTR",
         prices=[LabeledPrice(label=t["label"], amount=t["price_stars"])],
-        start_parameter="sub"
-    )
+        start_parameter="sub")
     await callback.answer()
 
 
@@ -350,11 +349,10 @@ async def successful_payment(message: types.Message):
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
         await message.answer(
             build_sub_message("Оплата прошла успешно! 🎉", t["label"], t["days"],
-                              cd["expiry_time"], cd["relay_link"]),
+                              cd["expiry_time"], cd["sub_id"]),
             parse_mode="Markdown")
     except Exception as e:
         logger.error("payment error: %s" % e)
-        await message.answer("❌ Ошибка активации. Админ уведомлён.")
         for a in ADMIN_IDS:
             try:
                 await bot.send_message(a, "Ошибка оплаты: %s" % e)
@@ -388,8 +386,7 @@ async def activate_user(message: types.Message, state: FSMContext):
         [KeyboardButton(text="📅 Полгода (180д)")],
         [KeyboardButton(text="📅 Год (365д)")],
         [KeyboardButton(text="📅 Навсегда (3650д)")],
-        [KeyboardButton(text="🔙 Отмена")]
-    ], resize_keyboard=True)
+        [KeyboardButton(text="🔙 Отмена")]], resize_keyboard=True)
     await state.set_state(AdminStates.waiting_for_tariff)
     await message.answer("Выберите тариф:", reply_markup=kb)
 
@@ -416,11 +413,8 @@ async def activate_tariff(message: types.Message, state: FSMContext):
         add_or_update_user(uid, "admin_%s" % key, cd["expiry_time"],
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
         try:
-            await bot.send_message(
-                uid,
-                build_sub_message("🎉 Админ активировал подписку!", t["label"], t["days"],
-                                  cd["expiry_time"], cd["relay_link"]),
-                parse_mode="Markdown")
+            await bot.send_message(uid, build_sub_message("🎉 Админ активировал подписку!", t["label"], t["days"],
+                                                          cd["expiry_time"], cd["sub_id"]), parse_mode="Markdown")
         except:
             pass
         await message.answer("✅ Активировано для %d на %d дней" % (uid, t["days"]), reply_markup=admin_keyboard)
@@ -449,11 +443,8 @@ async def activate_ref_process(message: types.Message, state: FSMContext):
         add_or_update_user(uid, "admin_ref", cd["expiry_time"],
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
         try:
-            await bot.send_message(
-                uid,
-                build_sub_message("🎉 Реф-подписка от админа", "Реферальная", 14,
-                                  cd["expiry_time"], cd["relay_link"]),
-                parse_mode="Markdown")
+            await bot.send_message(uid, build_sub_message("🎉 Реф-подписка от админа", "Реферальная", 14,
+                                                          cd["expiry_time"], cd["sub_id"]), parse_mode="Markdown")
         except:
             pass
         await message.answer("✅ Реф-подписка для %d на 14 дней" % uid, reply_markup=admin_keyboard)
@@ -487,7 +478,7 @@ async def del_process(message: types.Message, state: FSMContext):
             delete_user(uid)
             await message.answer("✅ Удалён %d" % uid, reply_markup=admin_keyboard)
         else:
-            await message.answer("❌ Не удалось удалить.", reply_markup=admin_keyboard)
+            await message.answer("❌ Не удалось.", reply_markup=admin_keyboard)
     except Exception as e:
         await message.answer("❌ Ошибка: %s" % e, reply_markup=admin_keyboard)
     await state.clear()
@@ -524,7 +515,7 @@ async def ext_process(message: types.Message, state: FSMContext):
             add_or_update_user(uid, u[0], new_expire, current_link=u[6], panel_client_id=u[8], uuid=u[9])
             await message.answer("✅ Продлён %d на %d дней" % (uid, days), reply_markup=admin_keyboard)
         else:
-            await message.answer("❌ Не удалось продлить.", reply_markup=admin_keyboard)
+            await message.answer("❌ Не удалось.", reply_markup=admin_keyboard)
     except Exception as e:
         await message.answer("❌ Ошибка: %s" % e, reply_markup=admin_keyboard)
     await state.clear()
@@ -548,7 +539,7 @@ async def ref_settings_process(message: types.Message, state: FSMContext):
         return
     parts = message.text.split()
     if len(parts) != 2:
-        await message.answer("❌ Два числа через пробел.")
+        await message.answer("❌ Два числа.")
         return
     try:
         set_setting("ref_required", str(int(parts[0])))
@@ -603,7 +594,7 @@ async def bc_start(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
     await state.set_state(AdminStates.waiting_for_broadcast_text)
-    await message.answer("✏️ Введите текст рассылки. /cancel")
+    await message.answer("✏️ Введите текст. /cancel")
 
 
 @dp.message(AdminStates.waiting_for_broadcast_text)
@@ -615,8 +606,7 @@ async def bc_process(message: types.Message, state: FSMContext):
     await state.update_data(bc_text=message.text)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Подтвердить", callback_data="bc_yes")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="bc_no")]
-    ])
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="bc_no")]])
     await state.set_state(AdminStates.waiting_for_broadcast_confirm)
     await message.answer("📨 Текст:\n\n%s\n\nПодтвердите:" % message.text, reply_markup=kb)
 
@@ -657,8 +647,7 @@ async def stats(message: types.Message):
     total = c.fetchone()[0]
     conn.close()
     await message.answer("📊 Статистика:\n\n👥 Всего: %d\n✅ Активных: %d\n🎫 Промокодов: %d" %
-                         (total, len(users), len(get_all_promocodes())),
-                         reply_markup=admin_keyboard)
+                         (total, len(users), len(get_all_promocodes())), reply_markup=admin_keyboard)
 
 
 @dp.message(F.text == "👥 Список пользователей")
@@ -694,14 +683,12 @@ async def back_main(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "instructions")
 async def instructions(callback: types.CallbackQuery):
-    text = (
-        "📖 Инструкция:\n\n"
-        "1️⃣ Получите подписку через бота.\n"
-        "2️⃣ Скопируйте ссылку.\n"
-        "3️⃣ Вставьте в клиент (Happ / V2RayNG / Nekobox).\n"
-        "4️⃣ Включите Allow Insecure.\n"
-        "5️⃣ Подключайтесь 🚀"
-    )
+    text = ("📖 Инструкция:\n\n"
+            "1️⃣ Получите подписку через бота.\n"
+            "2️⃣ Скопируйте ссылку.\n"
+            "3️⃣ Вставьте в клиент (Happ / V2RayNG / Nekobox).\n"
+            "4️⃣ Включите Allow Insecure.\n"
+            "5️⃣ Подключайтесь 🚀")
     if callback.message.text:
         try:
             await callback.message.edit_text(text, reply_markup=back_button)
@@ -767,10 +754,8 @@ async def promo_activate(message: types.Message, state: FSMContext):
         cd = create_client(days, email="promo_%d_%d" % (tg_id, int(time.time())))
         add_or_update_user(tg_id, "promo_%s" % code, cd["expiry_time"],
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
-        await message.answer(
-            build_sub_message("✅ Промокод активирован!", "Промокод", days,
-                              cd["expiry_time"], cd["relay_link"]),
-            parse_mode="Markdown")
+        await message.answer(build_sub_message("✅ Промокод активирован!", "Промокод", days,
+                                               cd["expiry_time"], cd["sub_id"]), parse_mode="Markdown")
     except Exception as e:
         logger.error("promo error: %s" % e)
         await message.answer("❌ Ошибка.")
@@ -789,20 +774,20 @@ async def support(message: types.Message):
 
 @dp.message(F.text == "📜 Соглашение")
 async def agreement(message: types.Message):
-    await message.answer("📜 Пользовательское соглашение. Используя сервис, вы соглашаетесь с правилами.")
+    await message.answer("📜 Пользовательское соглашение.")
 
 
 @dp.message(F.text == "ℹ️ Политика")
 async def policy(message: types.Message):
-    await message.answer("ℹ️ Политика конфиденциальности. Мы не храним личные данные.")
+    await message.answer("ℹ️ Политика конфиденциальности.")
 
 
 @dp.callback_query(F.data == "check_sub")
 async def check_sub(callback: types.CallbackQuery):
     if await check_subscription(callback.from_user.id):
-        await callback.message.answer("✅ Подписка подтверждена. Нажмите «Получить подписку».")
+        await callback.message.answer("✅ Подписка подтверждена.")
     else:
-        await callback.message.answer("❌ Вы ещё не подписались на канал.")
+        await callback.message.answer("❌ Вы ещё не подписались.")
     await callback.answer()
 
 
