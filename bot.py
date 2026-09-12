@@ -380,12 +380,18 @@ async def activate_tariff(message: types.Message, state: FSMContext):
         await state.clear()
         await message.answer("❌ Отменено", reply_markup=admin_keyboard)
         return
-    tmap = {
-        "📅 Неделя (7д)": "week", "📅 Месяц (30д)": "month", "📅 Полгода (180д)": "halfyear",
-        "📅 Год (365д)": "year", "📅 Навсегда (3650д)": "forever"
-    }
-    key = tmap.get(message.text)
-    if not key:
+    txt = message.text
+    if "Неделя" in txt:
+        key = "week"
+    elif "Месяц" in txt:
+        key = "month"
+    elif "Полгода" in txt:
+        key = "halfyear"
+    elif "Год" in txt:
+        key = "year"
+    elif "Навсегда" in txt:
+        key = "forever"
+    else:
         await message.answer("❌ Неверный тариф.")
         return
     t = TARIFFS[key]
