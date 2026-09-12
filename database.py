@@ -8,16 +8,11 @@ def init_db():
     c = conn.cursor()
     c.execute("""CREATE TABLE IF NOT EXISTS users (
         tg_id INTEGER PRIMARY KEY,
-        tariff TEXT,
-        expire_time INTEGER,
-        last_free_request INTEGER DEFAULT 0,
-        used_free INTEGER DEFAULT 0,
-        ref_count INTEGER DEFAULT 0,
-        referrer_id INTEGER DEFAULT NULL,
-        current_link TEXT,
-        ref_link TEXT UNIQUE,
-        panel_client_id TEXT DEFAULT NULL,
-        uuid TEXT DEFAULT NULL
+        tariff TEXT, expire_time INTEGER,
+        last_free_request INTEGER DEFAULT 0, used_free INTEGER DEFAULT 0,
+        ref_count INTEGER DEFAULT 0, referrer_id INTEGER DEFAULT NULL,
+        current_link TEXT, ref_link TEXT UNIQUE,
+        panel_client_id TEXT DEFAULT NULL, uuid TEXT DEFAULT NULL
     )""")
     for col in ["panel_client_id", "uuid", "current_link", "ref_link"]:
         try:
@@ -25,15 +20,11 @@ def init_db():
         except sqlite3.OperationalError:
             pass
     c.execute("""CREATE TABLE IF NOT EXISTS promocodes (
-        code TEXT PRIMARY KEY,
-        days INTEGER,
-        used_by INTEGER DEFAULT NULL,
-        created_at INTEGER,
-        used_at INTEGER DEFAULT NULL
+        code TEXT PRIMARY KEY, days INTEGER,
+        used_by INTEGER DEFAULT NULL, created_at INTEGER, used_at INTEGER DEFAULT NULL
     )""")
     c.execute("""CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT
+        key TEXT PRIMARY KEY, value TEXT
     )""")
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('ref_required', '5')")
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('ref_bonus_days', '14')")
@@ -102,8 +93,7 @@ def set_setting(key, value):
 def add_promocode(code, days):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO promocodes (code, days, created_at) VALUES (?, ?, ?)",
-              (code, days, int(time.time())))
+    c.execute("INSERT INTO promocodes (code, days, created_at) VALUES (?, ?, ?)", (code, days, int(time.time())))
     conn.commit()
     conn.close()
 
@@ -120,8 +110,7 @@ def get_promocode(code):
 def use_promocode(code, tg_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("UPDATE promocodes SET used_by=?, used_at=? WHERE code=?",
-              (tg_id, int(time.time()), code))
+    c.execute("UPDATE promocodes SET used_by=?, used_at=? WHERE code=?", (tg_id, int(time.time()), code))
     conn.commit()
     conn.close()
 
