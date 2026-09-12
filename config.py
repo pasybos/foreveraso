@@ -14,38 +14,20 @@ DB_PATH = os.path.join(BASE_DIR, "users.db")
 
 FREE_HOURS = 24
 
-# --- Панель 3x-ui (Нидерланды) ---
+# --- Панель 3x-ui (Нидерланды) — для учёта клиентов ---
 PANEL_DB_PATH = "/etc/x-ui/x-ui.db"
+INBOUND_REALITY_ID = 20
+INBOUND_XHTTP_ID = 22
 PANEL_SERVER_IP = "89.125.33.130"
 SUB_PORT = 2096
 
-# --- Reality-инбаунд (Нидерланды) ---
-INBOUND_REALITY_ID = 20
-REALITY_PORT = 8444
-REALITY_SNI = "p-nt-www-amazon-com-kalias.amazon.com"
-REALITY_FINGERPRINT = "chrome"
-REALITY_SPIDER_X = "/BevXivqIOpAwr8e"
-REALITY_PUBLIC_KEY = "5I-t7A_iNuQ3RQnc27QyoxgL7at_mohR6ZhUQGcJB1k"
-REALITY_SHORT_ID = "be93"
-
-# --- XHTTP-инбаунд (Нидерланды) ---
-INBOUND_XHTTP_ID = 22
-XHTTP_PORT = 443
-XHTTP_HOST = "foreverasovpn.work.gd"
-XHTTP_PATH = "/api/v9/feed"
-XHTTP_SNI = "foreverasovpn.work.gd"
-XHTTP_FINGERPRINT = "firefox"
-XHTTP_ALPN = "h2,http/1.1"
-XHTTP_MODE = "packet-up"
-
-# --- Relay (Российский VPS → Нидерланды) ---
+# --- Российский Relay (то, что выдаётся пользователю) ---
 RELAY_IP = "81.26.177.11"
 RELAY_PORT = 443
 RELAY_UUID = "ddea8633-e239-4125-83f8-22a8bc302d4a"
 RELAY_PUBLIC_KEY = "umlKj1LxX4Z2aadIeabM0fTh9qn9LAR7U9RydX0ZWw"
 RELAY_SNI = "dl.google.com"
 RELAY_SHORT_ID = "be93"
-RELAY_PATH = "/api/v9/feed"
 
 # --- Тарифы ---
 TARIFFS = {
