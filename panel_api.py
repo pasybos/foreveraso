@@ -30,10 +30,9 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
     now_ms = int(time.time() * 1000)
     expiry_ms = expiry_ts * 1000
 
-    # flow = xtls-rprx-vision ТОЛЬКО для Reality
     flow_value = "xtls-rprx-vision" if inbound_id == INBOUND_REALITY_ID else ""
 
-    # 1. UPSERT в таблицу clients (с обновлением flow)
+    # 1. UPSERT в таблицу clients
     c.execute("SELECT id FROM clients WHERE email = ?", (email,))
     row = c.fetchone()
     if row:
@@ -61,7 +60,7 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
     except Exception as e:
         logger.warning("client_inbounds insert: %s" % e)
 
-    # 3. JSON в inbounds.settings (чтобы Xray видел клиента)
+    # 3. JSON в inbounds.settings
     c.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
     row2 = c.fetchone()
     if row2:
@@ -105,8 +104,7 @@ def create_client(days, email=None):
 
     conn = sqlite3.connect(PANEL_DB_PATH)
     try:
-        # ⚠️ ВАЖЕН ПОРЯДОК: сначала XHTTP (без flow), потом Reality (с flow).
-        # Иначе пустой flow от XHTTP затрёт flow Reality.
+        # Сначала XHTTP (без flow), потом Reality (с flow)
         _add_client_everywhere(conn, INBOUND_XHTTP_ID, email, new_uuid, sub_id, expiry_ts)
         _add_client_everywhere(conn, INBOUND_REALITY_ID, email, new_uuid, sub_id, expiry_ts)
         conn.commit()
@@ -117,14 +115,16 @@ def create_client(days, email=None):
 
     sub_link = "http://%s:%d/sub/%s" % (PANEL_SERVER_IP, SUB_PORT, sub_id)
 
+    # Прямая ссылка на Reality (Нидерланды) с allowInsecure=1
     direct_link = (
         "vless://%s@%s:%d"
         "?type=tcp&security=reality&sni=%s"
-        "&pbk=%s&fp=%s&sid=%s&spx=%s&flow=xtls-rprx-vision&encryption=none"
+        "&pbk=%s&fp=%s&sid=%s&spx=%s"
+        "&flow=xtls-rprx-vision&allowInsecure=1&encryption=none"
         "#%s"
     ) % (new_uuid, PANEL_SERVER_IP, REALITY_PORT, REALITY_SNI,
          REALITY_PUBLIC_KEY, REALITY_FINGERPRINT, REALITY_SHORT_ID,
-         REALITY_SPIDER_X, "Нидерланды")
+         REALITY_SPIDER_X, "🇳🇱 Нидерланды")
 
     return {
         "id": new_uuid,
