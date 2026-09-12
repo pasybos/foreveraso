@@ -1,15 +1,14 @@
-from flask import Flask, Response, request
+from flask import Flask, Response
 import sqlite3
 import base64
-import json
 
 app = Flask(__name__)
 
 DB_PATH = "/etc/x-ui/x-ui.db"
-RELAY_LINK = "vless://ddea8633-e239-4125-83f8-22a8bc302d4a@81.26.177.11:443?type=tcp&security=reality&sni=www.microsoft.com&pbk=umlKj1LxX4Z2aadIeabM0fTh9qn9LAR7U9RydX0ZWw&sid=be93&fp=chrome&allowInsecure=1&encryption=none#🇷🇺 Нидерланды"
+RELAY_LINK = "vless://ddea8633-e239-4125-83f8-22a8bc302d4a@81.26.177.11:443?type=tcp&security=reality&sni=www.microsoft.com&pbk=umlKj1LxX4Z2aadIeabM0fTh9qn9LAR7U9RydX0ZWw&sid=be93&fp=chrome&allowInsecure=1&encryption=none#🇷🇺 Нидерланды (relay)"
+
 
 def get_client_links(sub_id):
-    """Находит клиента по subId и формирует 2 ссылки (Reality + XHTTP)."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT uuid FROM clients WHERE sub_id = ?", (sub_id,))
@@ -20,7 +19,6 @@ def get_client_links(sub_id):
 
     uuid_val = row[0]
 
-    # Reality ссылка
     reality = (
         f"vless://{uuid_val}@89.125.33.130:8444"
         f"?type=tcp&security=reality&sni=p-nt-www-amazon-com-kalias.amazon.com"
@@ -29,7 +27,6 @@ def get_client_links(sub_id):
         f"#🇳🇱 Нидерланды"
     )
 
-    # XHTTP ссылка
     xhttp = (
         f"vless://{uuid_val}@89.125.33.130:443"
         f"?type=xhttp&mode=packet-up&host=foreverasovpn.work.gd&path=/api/v9/feed"
