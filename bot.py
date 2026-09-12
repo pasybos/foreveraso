@@ -95,6 +95,22 @@ subscribe_keyboard = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 
+def build_sub_message(title, tariff_label, days, expire_ts, sub_link, relay_link):
+    """Формирует красивое сообщение с подпиской и relay-ссылкой."""
+    return (
+        "✅ *%s*\n\n"
+        "▸ Тариф: *%s*\n"
+        "▸ Срок: *%d дней*\n"
+        "▸ Действует до: *%s*\n\n"
+        "🔗 *Ссылка подписки* (Wi-Fi + резерв, 2 сервера):\n"
+        "`%s`\n\n"
+        "📱 *Ссылка для мобильного* (relay, обход белых списков):\n"
+        "`%s`\n\n"
+        "📌 Для Wi-Fi используйте первую ссылку в V2RayTun/Happ.\n"
+        "Для мобильного интернета — вторую (relay) отдельным подключением."
+    ) % (title, tariff_label, days, format_datetime(expire_ts), sub_link, relay_link)
+
+
 async def check_subscription(user_id):
     try:
         member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
@@ -167,8 +183,12 @@ async def give_ref_bonus(tg_id):
         cd = create_client(bonus_days, email="ref_%d_%d" % (tg_id, int(time.time())))
         add_or_update_user(tg_id, "ref_bonus", cd["expiry_time"],
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
-        await bot.send_message(tg_id,
-            "🎉 Реферальный бонус!\n\nВы получили %d дней!\nСсылка:\n%s" % (bonus_days, cd["link"]))
+        await bot.send_message(
+            tg_id,
+            build_sub_message("🎉 Реферальный бонус!", "Реферальная", bonus_days,
+                              cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+            parse_mode="Markdown"
+        )
     except Exception as e:
         logger.error("ref bonus error: %s" % e)
 
@@ -224,8 +244,9 @@ async def get_free(callback: types.CallbackQuery):
         add_or_update_user(tg_id, "free", cd["expiry_time"], used_free=1,
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
         await callback.message.answer(
-            "✅ Бесплатная подписка активирована! 🎉\n\n📅 Действует до: %s\n\n🔗 Ваша ссылка подписки:\n%s" %
-            (format_datetime(cd["expiry_time"]), cd["link"]),
+            build_sub_message("Бесплатная подписка активирована! 🎉", "Бесплатная", 1,
+                              cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+            parse_mode="Markdown",
             reply_markup=back_button)
     except Exception as e:
         logger.error("get_free error: %s" % e)
@@ -330,8 +351,9 @@ async def successful_payment(message: types.Message):
         add_or_update_user(tg_id, "paid_%s" % key, cd["expiry_time"],
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
         await message.answer(
-            "✅ Оплата прошла успешно! 🎉\n\n▸ %d дней\n📅 До: %s\n\n🔗 Ваша ссылка:\n%s" %
-            (t["days"], format_datetime(cd["expiry_time"]), cd["link"]))
+            build_sub_message("Оплата прошла успешно! 🎉", t["label"], t["days"],
+                              cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+            parse_mode="Markdown")
     except Exception as e:
         logger.error("payment error: %s" % e)
         await message.answer("❌ Ошибка активации. Админ уведомлён.")
@@ -380,18 +402,12 @@ async def activate_tariff(message: types.Message, state: FSMContext):
         await state.clear()
         await message.answer("❌ Отменено", reply_markup=admin_keyboard)
         return
-    txt = message.text
-    if "Неделя" in txt:
-        key = "week"
-    elif "Месяц" in txt:
-        key = "month"
-    elif "Полгода" in txt:
-        key = "halfyear"
-    elif "Год" in txt:
-        key = "year"
-    elif "Навсегда" in txt:
-        key = "forever"
-    else:
+    tmap = {
+        "📅 Неделя (7д)": "week", "📅 Месяц (30д)": "month", "📅 Полгода (180д)": "halfyear",
+        "📅 Год (365д)": "year", "📅 Навсегда (3650д)": "forever"
+    }
+    key = tmap.get(message.text)
+    if not key:
         await message.answer("❌ Неверный тариф.")
         return
     t = TARIFFS[key]
@@ -402,9 +418,11 @@ async def activate_tariff(message: types.Message, state: FSMContext):
         add_or_update_user(uid, "admin_%s" % key, cd["expiry_time"],
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
         try:
-            await bot.send_message(uid,
-                "🎉 Админ активировал подписку!\n\n▸ %s (%d дн.)\n📅 До: %s\n\n🔗 Ваша ссылка:\n%s" %
-                (t["label"], t["days"], format_datetime(cd["expiry_time"]), cd["link"]))
+            await bot.send_message(
+                uid,
+                build_sub_message("🎉 Админ активировал подписку!", t["label"], t["days"],
+                                  cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+                parse_mode="Markdown")
         except:
             pass
         await message.answer("✅ Активировано для %d на %d дней" % (uid, t["days"]), reply_markup=admin_keyboard)
@@ -433,7 +451,11 @@ async def activate_ref_process(message: types.Message, state: FSMContext):
         add_or_update_user(uid, "admin_ref", cd["expiry_time"],
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
         try:
-            await bot.send_message(uid, "🎉 Реф-подписка 14 дней!\n\n🔗 Ссылка:\n%s" % cd["link"])
+            await bot.send_message(
+                uid,
+                build_sub_message("🎉 Реф-подписка от админа", "Реферальная", 14,
+                                  cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+                parse_mode="Markdown")
         except:
             pass
         await message.answer("✅ Реф-подписка для %d на 14 дней" % uid, reply_markup=admin_keyboard)
@@ -677,10 +699,11 @@ async def instructions(callback: types.CallbackQuery):
     text = (
         "📖 Инструкция:\n\n"
         "1️⃣ Получите подписку через бота.\n"
-        "2️⃣ Скопируйте ссылку подписки.\n"
-        "3️⃣ Вставьте в клиент (Happ / V2RayNG / Nekobox).\n"
-        "4️⃣ Включите Allow Insecure (для Reality).\n"
-        "5️⃣ Подключайтесь 🚀"
+        "2️⃣ Скопируйте ссылку подписки — она для Wi-Fi.\n"
+        "3️⃣ Для мобильного интернета — используйте ОТДЕЛЬНУЮ relay-ссылку (вторую в сообщении).\n"
+        "4️⃣ Вставьте в клиент (Happ / V2RayNG / Nekobox).\n"
+        "5️⃣ Включите Allow Insecure.\n"
+        "6️⃣ Подключайтесь 🚀"
     )
     if callback.message.text:
         try:
@@ -747,7 +770,10 @@ async def promo_activate(message: types.Message, state: FSMContext):
         cd = create_client(days, email="promo_%d_%d" % (tg_id, int(time.time())))
         add_or_update_user(tg_id, "promo_%s" % code, cd["expiry_time"],
                            current_link=cd["link"], panel_client_id=cd["id"], uuid=cd["uuid"])
-        await message.answer("✅ Промокод активирован! 🎉\n\n%d дней\n\n🔗 Ссылка:\n%s" % (days, cd["link"]))
+        await message.answer(
+            build_sub_message("✅ Промокод активирован!", "Промокод", days,
+                              cd["expiry_time"], cd["link"], cd.get("relay_link", "")),
+            parse_mode="Markdown")
     except Exception as e:
         logger.error("promo error: %s" % e)
         await message.answer("❌ Ошибка.")
