@@ -1,4 +1,3 @@
-cat > /root/vpn_bot/config.py << 'CFGEOF'
 import os
 
 VPN_NAME = "Foreveraso VPN"
@@ -43,4 +42,3 @@ TARIFFS = {
     "year":     {"days": 365,  "label": "Год",         "price_rub": "999",  "price_stars": 549},
     "forever":  {"days": 3650, "label": "Навсегда",    "price_rub": "2499", "price_stars": 1350},
 }
-CFGEOF
