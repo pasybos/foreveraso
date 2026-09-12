@@ -30,14 +30,15 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
     now_ms = int(time.time() * 1000)
     expiry_ms = expiry_ts * 1000
 
-    # 1. UPSERT в clients (сохраняет id при повторном вызове)
+    flow_value = "xtls-rprx-vision" if inbound_id == INBOUND_REALITY_ID else ""
+
     c.execute("SELECT id FROM clients WHERE email = ?", (email,))
     row = c.fetchone()
     if row:
         client_id = row[0]
         c.execute("""UPDATE clients SET sub_id=?, uuid=?, limit_ip=?, total_gb=?,
-                     expiry_time=?, enable=?, updated_at=? WHERE id=?""",
-                  (sub_id, new_uuid, 1, 0, expiry_ms, 1, now_ms, client_id))
+                     expiry_time=?, enable=?, updated_at=?, flow=? WHERE id=?""",
+                  (sub_id, new_uuid, 1, 0, expiry_ms, 1, now_ms, flow_value, client_id))
     else:
         c.execute("""INSERT INTO clients
                      (email, sub_id, uuid, limit_ip, total_gb, expiry_time, enable,
@@ -45,20 +46,18 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
                       created_at, updated_at, flow, security)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                   (email, sub_id, new_uuid, 1, 0, expiry_ms, 1,
-                   0, 0, 0, 0, "never", 1, now_ms, now_ms, "", "auto"))
+                   0, 0, 0, 0, "never", 1, now_ms, now_ms, flow_value, "auto"))
         c.execute("SELECT id FROM clients WHERE email = ?", (email,))
         client_id = c.fetchone()[0]
 
-    # 2. Связь client_inbounds
     try:
         c.execute("""INSERT OR IGNORE INTO client_inbounds
                      (client_id, inbound_id, flow_override, created_at)
                      VALUES (?, ?, ?, ?)""",
-                  (client_id, inbound_id, "", now_ms))
+                  (client_id, inbound_id, flow_value, now_ms))
     except Exception as e:
         logger.warning("client_inbounds insert: %s" % e)
 
-    # 3. JSON в inbounds.settings (чтобы Xray видел клиента)
     c.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
     row2 = c.fetchone()
     if row2:
@@ -68,13 +67,14 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
             found = False
             for cl in clients:
                 if cl.get("id") == new_uuid:
+                    cl["flow"] = flow_value
                     found = True
                     break
             if not found:
                 clients.append({
                     "id": new_uuid,
                     "email": email,
-                    "flow": "",
+                    "flow": flow_value,
                     "limitIp": 1,
                     "totalGB": 0,
                     "expiryTime": expiry_ms,
@@ -83,8 +83,8 @@ def _add_client_everywhere(conn, inbound_id, email, new_uuid, sub_id, expiry_ts)
                     "subId": sub_id,
                 })
                 data["clients"] = clients
-                c.execute("UPDATE inbounds SET settings = ? WHERE id = ?",
-                          (json.dumps(data), inbound_id))
+            c.execute("UPDATE inbounds SET settings = ? WHERE id = ?",
+                      (json.dumps(data), inbound_id))
         except Exception as e:
             logger.error("JSON update error: %s" % e)
 
@@ -113,7 +113,7 @@ def create_client(days, email=None):
     direct_link = (
         "vless://%s@%s:%d"
         "?type=tcp&security=reality&sni=%s"
-        "&pbk=%s&fp=%s&sid=%s&spx=%s&encryption=none"
+        "&pbk=%s&fp=%s&sid=%s&spx=%s&flow=xtls-rprx-vision&encryption=none"
         "#%s"
     ) % (new_uuid, PANEL_SERVER_IP, REALITY_PORT, REALITY_SNI,
          REALITY_PUBLIC_KEY, REALITY_FINGERPRINT, REALITY_SHORT_ID,
